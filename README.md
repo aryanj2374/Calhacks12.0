@@ -33,6 +33,29 @@ The first run opens a browser window (or prints the authorization URL when `--co
 
 Planned enhancements include integrating LLM-based extraction when course pages are inconsistent, and adding CSV/ICS export.
 
+## LLM-powered chat agent
+
+The `agentic_calendar.chat_cli` entry point lets you issue natural-language commands (add, delete, move events) which are grounded with lightweight RAG context and executed against Google Calendar. The chat agent talks to [LavaPayments](https://www.lavapayments.com/) which brokers access to GPT, Gemini, Claude, etc.
+
+```bash
+python -m agentic_calendar.chat_cli \
+  --calendar primary \
+  --csv schedule.csv \
+  --forward-token '...paste your Lava forward token JSON...' \
+  --provider openai \
+  --model gpt-4o-mini \
+  --dry-run
+```
+
+Environment variables:
+
+- `LAVAPAY_FORWARD_TOKEN` / `LAVA_FORWARD_TOKEN` – copy the “Self Forward Token” JSON from **Build → Secret Keys → Self Forward Token**. This is what the `--forward-token` flag expects.
+- `LAVAPAY_BASE_URL` – override the default gateway (defaults to `https://api.lavapayments.com/v1`).
+- `LAVAPAY_TARGET_URL` – optional override for the upstream model endpoint; defaults to OpenAI chat completions when `--provider openai`.
+- `LAVAPAY_PROVIDER` / `LAVAPAY_MODEL` – optional defaults for the CLI flags.
+
+When `--dry-run` is omitted the agent will delete/move/create events via the Google Calendar API using the same OAuth credentials as the CSV sync workflow.
+
 ## CSV format
 
 Two layouts are supported:
