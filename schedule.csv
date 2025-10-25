@@ -1,0 +1,86 @@
+Date,Type,Description
+2025-01-25,Lecture,Wed8/27 1. Welcome Zoom Recording Slides (pdf) Disc 00: Getting Started Lab 00: Getting Started Due Wed 9/3 Solutions
+2025-01-25,Discussion,Wed8/27 1. Welcome Zoom Recording Slides (pdf) Disc 00: Getting Started Lab 00: Getting Started Due Wed 9/3 Solutions
+2025-08-27,Assignment,Wed8/27 1. Welcome Zoom Recording Slides (pdf) Disc 00: Getting Started Lab 00: Getting Started Due Wed 9/3 Solutions
+2025-08-29,Lecture,"2. Functions Videos Zoom Recording Slides (pdf) Ch. 1.1 Ch. 1.2 Ch. 1.3 Lab 01: Functions Due Wed 9/3 Solutions HW 01: Functions, Control Due Mon 9/8 Solutions"
+2. Functions Videos Zoom Recording Slides (pdf),Assignment,"2. Functions Videos Zoom Recording Slides (pdf) Ch. 1.1 Ch. 1.2 Ch. 1.3 Lab 01: Functions Due Wed 9/3 Solutions HW 01: Functions, Control Due Mon 9/8 Solutions"
+2025-09-03,Lecture,"3. Control Videos Zoom Recording Slides (pdf) Ch. 1.4 Ch. 1.5 Disc 01: Control, Environment Diagrams Solutions"
+2025-09-03,Discussion,"3. Control Videos Zoom Recording Slides (pdf) Ch. 1.4 Ch. 1.5 Disc 01: Control, Environment Diagrams Solutions"
+2025-09-05,Lecture,4. Higher-Order Functions Videos Recording Slides (pdf) Ch. 1.6 HW 02: Higher-Order Functions Due Thu 9/11 Solutions Hog Checkpt Thu 9/11 Early Due Wed 9/17 Due Thu 9/18 Getting Started Videos
+4. Higher-Order Functions Videos Recording Slides (pdf),Assignment,4. Higher-Order Functions Videos Recording Slides (pdf) Ch. 1.6 HW 02: Higher-Order Functions Due Thu 9/11 Solutions Hog Checkpt Thu 9/11 Early Due Wed 9/17 Due Thu 9/18 Getting Started Videos
+2025-03-25,Lecture,"Mon9/8 5. Environments Videos Recording Slides (pdf) Ch. 1.6 Lab 02: Higher-Order Functions, Lambda Expressions Due Wed 9/10 Solutions"
+2025-09-08,Assignment,"Mon9/8 5. Environments Videos Recording Slides (pdf) Ch. 1.6 Lab 02: Higher-Order Functions, Lambda Expressions Due Wed 9/10 Solutions"
+2025-09-10,Lecture,"6. Functional Abstraction Videos Recording Slides (pdf) Disc 02: Environment Diagrams, Higher-Order Functions Solutions Video"
+2025-09-10,Discussion,"6. Functional Abstraction Videos Recording Slides (pdf) Disc 02: Environment Diagrams, Higher-Order Functions Solutions Video"
+2025-09-12,Lecture,7. Midterm 1 Review Part 1 Videos Recording Slides (pdf) (Optional) Hog Contest Due Thu 9/25
+2025-09-12,Exam,7. Midterm 1 Review Part 1 Videos Recording Slides (pdf) (Optional) Hog Contest Due Thu 9/25
+2025-04-25,Lecture,Mon9/15 8. Midterm 1 Review Part 2 Recording Slides (pdf)
+2025-04-25,Exam,Mon9/15 8. Midterm 1 Review Part 2 Recording Slides (pdf)
+2025-09-16,Lecture,Midterm 1 (7pm-9pm)
+2025-09-16,Exam,Midterm 1 (7pm-9pm)
+2025-09-17,Lecture,9. Recursion Videos Recording Slides (pdf) Ch. 1.7 Disc 03: Recursion Solutions Video
+2025-09-17,Discussion,9. Recursion Videos Recording Slides (pdf) Ch. 1.7 Disc 03: Recursion Solutions Video
+2025-09-19,Lecture,"10. Tree Recursion Videos Recording Slides (pdf) Ch. 1.7 HW 03: Recursion, Tree Recursion Due Thu 9/25 Solutions"
+10. Tree Recursion Videos Recording Slides (pdf),Assignment,"10. Tree Recursion Videos Recording Slides (pdf) Ch. 1.7 HW 03: Recursion, Tree Recursion Due Thu 9/25 Solutions"
+2025-05-25,Lecture,"Mon9/22 11. Sequences Videos Recording Type Hints Reading Slides (pdf) Ch. 2.1 Ch. 2.3 Lab 03: Recursion, Python Lists Due Wed 9/24 Solutions"
+2025-09-22,Assignment,"Mon9/22 11. Sequences Videos Recording Type Hints Reading Slides (pdf) Ch. 2.1 Ch. 2.3 Lab 03: Recursion, Python Lists Due Wed 9/24 Solutions"
+2025-09-24,Lecture,12. Containers Videos Recording Slides (pdf) Ch. 2.3 Disc 04: Tree Recursion Solutions Video Cats Checkpt Thu 10/2 Early Due Wed 10/8 Due Thu 10/9 Getting Started Videos
+2025-09-24,Discussion,12. Containers Videos Recording Slides (pdf) Ch. 2.3 Disc 04: Tree Recursion Solutions Video Cats Checkpt Thu 10/2 Early Due Wed 10/8 Due Thu 10/9 Getting Started Videos
+2025-09-26,Lecture,13. Data Abstraction Videos Recording Slides (pdf) Ch. 2.2
+2025-06-25,Lecture,"Mon9/29 14. Trees Videos Recording Slides (pdf) Ch. 2.3 Lab 04: Tree Recursion, Data Abstraction Due Wed 10/1 Solutions"
+2025-09-29,Assignment,"Mon9/29 14. Trees Videos Recording Slides (pdf) Ch. 2.3 Lab 04: Tree Recursion, Data Abstraction Due Wed 10/1 Solutions"
+2025-10-01,Lecture,15. Mutability Videos Recording Slides (pdf) Ch. 2.4 Disc 05: Trees Video
+2025-10-01,Discussion,15. Mutability Videos Recording Slides (pdf) Ch. 2.4 Disc 05: Trees Video
+2025-10-03,Lecture,"16. Iterators Videos Recording Slides (pdf) Ch. 4.2 HW 04: Sequences, Data Abstraction, Trees Due Thu 10/9 Solutions"
+16. Iterators Videos Recording Slides (pdf),Assignment,"16. Iterators Videos Recording Slides (pdf) Ch. 4.2 HW 04: Sequences, Data Abstraction, Trees Due Thu 10/9 Solutions"
+2025-07-25,Lecture,"Mon10/6 17. Generators Videos Recording Slides (pdf) Ch. 4.2 Lab 05: Iterators, Mutability Due Wed 10/8 Solutions"
+2025-10-06,Assignment,"Mon10/6 17. Generators Videos Recording Slides (pdf) Ch. 4.2 Lab 05: Iterators, Mutability Due Wed 10/8 Solutions"
+2025-10-08,Lecture,18. Objects Videos Recording Slides (pdf) Ch. 2.5 Disc 06: Generators Video
+2025-10-08,Discussion,18. Objects Videos Recording Slides (pdf) Ch. 2.5 Disc 06: Generators Video
+2025-10-10,Lecture,19. Attributes Videos Recording Slides (pdf) 19.py Ch. 2.5 HW 05: Generators Due Thu 10/16 Solutions Ants Checkpt 1 Thu 10/16 Checkpt 2 Tue 10/21 Early Due Wed 10/22 Due Thu 10/23 Getting Started Videos
+19. Attributes Videos Recording Slides (pdf) 19.py,Assignment,19. Attributes Videos Recording Slides (pdf) 19.py Ch. 2.5 HW 05: Generators Due Thu 10/16 Solutions Ants Checkpt 1 Thu 10/16 Checkpt 2 Tue 10/21 Early Due Wed 10/22 Due Thu 10/23 Getting Started Videos
+2025-08-25,Lecture,Mon10/13 20. Inheritance Videos Recording Slides (pdf) 20.py Ch. 2.5 Lab 06: Object-Oriented Programming Due Wed 10/15 Solutions
+2025-10-13,Assignment,Mon10/13 20. Inheritance Videos Recording Slides (pdf) 20.py Ch. 2.5 Lab 06: Object-Oriented Programming Due Wed 10/15 Solutions
+2025-10-15,Lecture,21. Representation Videos Recording Slides (pdf) 21.py Ch. 2.7 Disc 07: OOP Video
+2025-10-15,Discussion,21. Representation Videos Recording Slides (pdf) 21.py Ch. 2.7 Disc 07: OOP Video
+2025-10-17,Lecture,"22. Composition Videos Recording Slides (pdf) 22.py HW 06: Object-Oriented Programming, Linked Lists, Mutable Trees Due Thu 10/23"
+22. Composition Videos Recording Slides (pdf) 22.py,Assignment,"22. Composition Videos Recording Slides (pdf) 22.py HW 06: Object-Oriented Programming, Linked Lists, Mutable Trees Due Thu 10/23"
+2025-09-25,Lecture,"Mon10/20 23. Efficiency Videos Recording Slides (pdf) 23.py Ch. 2.8 Lab 07: Linked Lists, Inheritance Due Wed 10/22"
+2025-10-20,Assignment,"Mon10/20 23. Efficiency Videos Recording Slides (pdf) 23.py Ch. 2.8 Lab 07: Linked Lists, Inheritance Due Wed 10/22"
+2025-10-22,Lecture,24. Decomposition Videos Recording Slides (pdf) Disc 08: Linked Lists Video
+2025-10-22,Discussion,24. Decomposition Videos Recording Slides (pdf) Disc 08: Linked Lists Video
+2025-10-24,Lecture,25. Data Examples Videos Slides (pdf)
+2025-10-25,Lecture,Mon10/27 26. Midterm 2 Review
+2025-10-25,Exam,Mon10/27 26. Midterm 2 Review
+2025-10-28,Lecture,Midterm 2 (7pm-9pm)
+2025-10-28,Exam,Midterm 2 (7pm-9pm)
+2025-10-29,Lecture,27. Concurrency Disc 09: Concurrency
+2025-10-29,Discussion,27. Concurrency Disc 09: Concurrency
+2025-10-31,Lecture,28. Computer Science Ethics (Hany Farid)
+2025-11-25,Lecture,Mon11/3 29. Scheme Videos Ch. 3.1 Ch. 3.2 Lab 08: Scheme Due Wed 11/5 HW 07: Scheme Due Thu 11/6
+2025-11-03,Assignment,Mon11/3 29. Scheme Videos Ch. 3.1 Ch. 3.2 Lab 08: Scheme Due Wed 11/5 HW 07: Scheme Due Thu 11/6
+2025-11-05,Lecture,"30. Scheme Lists Videos Ch. 3.2 Disc 10: Scheme, Scheme Lists Video"
+2025-11-05,Discussion,"30. Scheme Lists Videos Ch. 3.2 Disc 10: Scheme, Scheme Lists Video"
+2025-11-07,Lecture,31. Calculator Ch. 3.3 Ch. 3.4 HW 08: Scheme Lists Due Thu 11/13
+31. Calculator,Assignment,31. Calculator Ch. 3.3 Ch. 3.4 HW 08: Scheme Lists Due Thu 11/13
+2025-12-25,Lecture,Mon11/10 32. Interpreters Ch. 3.5 Lab 09: Interpreters Due Wed 11/12 Scheme Checkpt 1 Thu 11/13 Checkpt 2 Thu 11/20 Early Due Mon 11/24 Due Tue 11/25 Getting Started Videos
+2025-11-10,Assignment,Mon11/10 32. Interpreters Ch. 3.5 Lab 09: Interpreters Due Wed 11/12 Scheme Checkpt 1 Thu 11/13 Checkpt 2 Thu 11/20 Early Due Mon 11/24 Due Tue 11/25 Getting Started Videos
+2025-11-12,Lecture,33. Programs as Data Videos Disc 11: Interpreters
+2025-11-12,Discussion,33. Programs as Data Videos Disc 11: Interpreters
+2025-11-14,Lecture,"34. Macros Videos HW 09: Programs as Data, Macros Due Thu 11/20"
+34. Macros Videos,Assignment,"34. Macros Videos HW 09: Programs as Data, Macros Due Thu 11/20"
+2025-10-13,Lecture,"Mon11/17 35. SQL Lab 10: Programs as Data, Macros Due Wed 11/19"
+2025-11-17,Assignment,"Mon11/17 35. SQL Lab 10: Programs as Data, Macros Due Wed 11/19"
+2025-11-19,Lecture,36. Tables Disc 12: Macros (Optional) Scheme Contest Due Wed 12/3
+2025-11-19,Discussion,36. Tables Disc 12: Macros (Optional) Scheme Contest Due Wed 12/3
+2025-11-21,Lecture,37. Aggregation HW 10: SQL Due Thu 11/27
+37. Aggregation,Assignment,37. Aggregation HW 10: SQL Due Thu 11/27
+2025-10-14,Lecture,Mon11/24 38. Databases
+2025-10-15,Lecture,Mon12/1 39. Designing Functions Videos Lab 11: SQL Due Wed 12/3
+2025-12-01,Assignment,Mon12/1 39. Designing Functions Videos Lab 11: SQL Due Wed 12/3
+2025-12-03,Lecture,40. Language Models Disc 13: SQL
+2025-12-03,Discussion,40. Language Models Disc 13: SQL
+2025-12-05,Lecture,41. Conclusion HW 11: Finale Due Sun 12/14
+41. Conclusion,Assignment,41. Conclusion HW 11: Finale Due Sun 12/14
+2025-10-17,Lecture,Wed12/17 Final (7pm-10pm)
+2025-10-17,Exam,Wed12/17 Final (7pm-10pm)
