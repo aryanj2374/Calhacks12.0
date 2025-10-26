@@ -81,6 +81,13 @@ h2 {
   flex-direction: column;
 }
 
+.chat-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 10px 0;
+  text-align: left;
+}
+
 .chat-message {
   padding: 10px 14px;
   margin-bottom: 8px;
@@ -105,6 +112,17 @@ h2 {
   text-align: left;
 }
 
+.chat-meta {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.chat-meta.error {
+  color: #dc2626;
+}
+
 .chat-message:hover {
   transform: translateY(-2px) scale(1.01);
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
@@ -123,6 +141,10 @@ h2 {
   color: var(--text-primary);
 }
 
+.chat-input input:disabled {
+  opacity: 0.6;
+}
+
 .chat-input input::placeholder {
   color: var(--text-secondary);
 }
@@ -138,9 +160,97 @@ h2 {
   transition: transform 0.2s ease, background 0.2s ease;
 }
 
+.chat-input button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .chat-input button:hover {
   background-color: var(--button-hover);
   transform: translateY(-2px) scale(1.05);
+}
+
+.status-bar {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 6px 0 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.status-error {
+  color: #dc2626;
+}
+
+.sync-card {
+  background: linear-gradient(135deg, #eef2ff, #fdf2f8);
+  border-radius: var(--border-radius);
+  padding: 18px;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.15);
+  color: #312e81;
+}
+
+.sync-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sync-label {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #5b21b6;
+}
+
+.sync-time {
+  margin: 2px 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.sync-pill {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.sync-pill.success {
+  background-color: #bbf7d0;
+  color: #166534;
+}
+
+.sync-pill.pending {
+  background-color: #fde68a;
+  color: #92400e;
+}
+
+.sync-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.sync-errors {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 6px 0 0;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.sync-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #4c1d95;
 }
 
 /* Calendar */

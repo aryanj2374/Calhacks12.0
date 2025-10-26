@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from rich.console import Console
+from dateutil import tz
 
 from .agent import CalendarAgent
 from .calendar_client import GoogleCalendarClient
@@ -86,7 +87,13 @@ def main(args: list[str] | None = None) -> None:
         provider=opts.provider,
         base_url=opts.base_url,
     )
-    agent = CalendarAgent(events=report.events, calendar_client=calendar_client, llm_client=llm_client)
+    tzinfo = tz.gettz(opts.timezone)
+    agent = CalendarAgent(
+        events=report.events,
+        calendar_client=calendar_client,
+        llm_client=llm_client,
+        default_timezone=tzinfo,
+    )
 
     console.print("[green]Calendar chat ready. Type 'exit' or 'quit' to stop.[/]")
     while True:

@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import json
-from pathlib import Path
-from typing import Iterable, List, Set
-
 from rich.console import Console
 from rich.table import Table
 
 from .calendar_client import GoogleCalendarClient
-from .email_event_extractor import EmailEventExtractor
-from .gmail_client import GmailClient, GmailMessage
+from .gmail_client import GmailClient
+from .gmail_ingest import ingest_gmail
 from .llm_client import LavaPaymentsLLMClient
 
 
@@ -54,45 +50,12 @@ def main(args: list[str] | None = None) -> None:
         token_file=opts.gmail_token,
         use_console_oauth=opts.console_oauth,
     )
-    try:
-        raw_messages = gmail_client.fetch_messages(query=opts.query)
-    except Exception as exc:
-        console.print(f"[red]Failed to fetch Gmail messages: {exc}[/]")
-        return
-
-    store = ProcessedMessageStore(Path(opts.processed_store))
-    new_messages = store.filter_new(raw_messages)
-    if not new_messages:
-        console.print("[yellow]No new Gmail messages found (or all were previously processed).[/]")
-        return
-
     forward_token = opts.forward_token or None
     llm_client = LavaPaymentsLLMClient(
         forward_token=forward_token,
         provider=opts.provider,
         model=opts.model,
     )
-    extractor = EmailEventExtractor(
-        llm_client,
-        timezone_name=opts.timezone,
-    )
-
-    events = []
-    for message in new_messages:
-        try:
-            events.extend(extractor.extract_events(message))
-        except Exception as exc:
-            console.print(f"[red]Failed to parse message '{message.subject}': {exc}[/]")
-
-    if not events:
-        console.print("[yellow]No events detected in the new Gmail messages.[/]")
-        return
-
-    _render_events(console, events)
-
-    if not opts.apply:
-        console.print("[cyan]Preview complete. Rerun with --apply to create these events.[/]")
-        return
 
     calendar_client = GoogleCalendarClient(
         calendar_id=opts.calendar,
@@ -101,36 +64,37 @@ def main(args: list[str] | None = None) -> None:
         dry_run=False,
         use_console_oauth=opts.console_oauth,
     )
-    created_ids = calendar_client.create_events(events)
-    console.print(f"[green]Created {len(created_ids)} Google Calendar events.[/]")
-    store.mark_processed(new_messages)
 
+    try:
+        result = ingest_gmail(
+            gmail_client=gmail_client,
+            llm_client=llm_client,
+            calendar_client=calendar_client if opts.apply else None,
+            query=opts.query,
+            timezone=opts.timezone,
+            processed_store=opts.processed_store,
+            apply=opts.apply,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed to ingest Gmail messages: {exc}[/]")
+        return
 
-class ProcessedMessageStore:
-    """Tracks Gmail message IDs that have already been ingested."""
+    if not result.events:
+        console.print("[yellow]No events detected in the new Gmail messages.[/]")
+        return
 
-    def __init__(self, path: Path):
-        self.path = path
-        self.ids: Set[str] = set()
-        self._load()
+    _render_events(console, result.events)
 
-    def _load(self) -> None:
-        if not self.path.exists():
-            return
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                self.ids = set(str(item) for item in data)
-        except json.JSONDecodeError:
-            self.ids = set()
+    if result.errors:
+        console.print("[red]Some messages could not be parsed:[/]")
+        for item in result.errors:
+            console.print(f"- {item}")
 
-    def filter_new(self, messages: Iterable[GmailMessage]) -> List[GmailMessage]:
-        return [message for message in messages if message.id not in self.ids]
+    if not opts.apply:
+        console.print("[cyan]Preview complete. Rerun with --apply to create these events.[/]")
+        return
 
-    def mark_processed(self, messages: Iterable[GmailMessage]) -> None:
-        for message in messages:
-            self.ids.add(message.id)
-        self.path.write_text(json.dumps(sorted(self.ids)), encoding="utf-8")
+    console.print(f"[green]Created {len(result.created_event_ids)} Google Calendar events.[/]")
 
 
 def _render_events(console: Console, events) -> None:

@@ -3,5 +3,8 @@ __pycache__/
 *.pyc
 .DS_Store
 token.json
+gmail_token.json
+.gmail_processed.json
 credentials*.json
 .env
+node_modules

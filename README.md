@@ -21,7 +21,40 @@ Python agent that ingests course schedules, syncs them to Google Calendar, and n
    - If the CSV omits a year (e.g., `Oct 05`), add `--csv-year 2025` so dates are interpreted correctly.
    - Use `--default-start HH:MM` and `--duration minutes` for files without explicit times.
    - Add `--console-oauth` to use the copy/paste OAuth flow.
-   - Use `--replace-events` to delete matching events before inserting new ones.
+- Use `--replace-events` to delete matching events before inserting new ones.
+
+## Web UI + API server
+
+The React dashboard (`src/App.js`) now talks to a FastAPI backend that wraps the calendar agent, the scraper, and the Gmail ingest loop.
+
+1. **Start the API**
+   ```bash
+   # Same virtualenv as above
+   export GOOGLE_CALENDAR_ID="primary"          # or a specific calendar id
+   export CALENDAR_AGENT_DRY_RUN=false          # set true to preview without writing
+   export ENABLE_GMAIL_POLLING=true             # polls Gmail every 5 minutes
+   export LAVAPAY_FORWARD_TOKEN='{"token":"..."}'
+   uvicorn backend.server:app --reload
+   ```
+   Useful overrides:
+   - `SCHEDULE_CSV` – path to the working CSV (defaults to `schedule.csv`).
+   - `CALENDAR_TIMEZONE`, `DEFAULT_START_TIME`, `DEFAULT_DURATION_MINUTES`, `SCHEDULE_FALLBACK_YEAR` – parser hints.
+   - `FRONTEND_ORIGINS` – comma-separated list of allowed browser origins (default `http://localhost:3000`).
+   - `COURSE_IMPORT_REPLACE=true` – delete+recreate matching events during course imports.
+   - `GMAIL_*` variables mirror the CLI flags (`GMAIL_QUERY`, `GMAIL_TOKEN`, etc.).
+
+2. **Run the frontend**
+   ```bash
+   npm install
+   npm start
+   ```
+   Set `REACT_APP_API_BASE_URL` if the backend is not on `http://localhost:8000`.
+
+### Using the chat box
+
+- Natural-language requests (“add a study session tomorrow at 6pm”, “move HW4 to Friday”) are forwarded to the LLM agent that previously lived in the CLI.
+- Pasting a course/syllabus URL and mentioning “course”, “syllabus”, etc. triggers the scraper, rewrites `schedule.csv`, reloads the events, and (when not in dry-run mode) pushes them to Google Calendar.
+- Gmail ingestion runs automatically every five minutes whenever `ENABLE_GMAIL_POLLING=true` **and** `CALENDAR_AGENT_DRY_RUN=false`; the background task feeds new email-derived events into the same agent memory so you can reference them in chat.
 
 ## Gmail ingestion
 
