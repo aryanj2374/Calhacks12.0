@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timezone
 from typing import List
 
+import re
 from dateutil import parser as date_parser
 
 from .gmail_client import GmailMessage
@@ -46,40 +47,96 @@ Guidelines:
   recipient is registered/committed.
 """
 
-    PROMO_KEYWORDS = [
-        "promotion",
-        "coupon",
-        "discount",
-        "sale",
-        "tickets on sale",
-        "buy tickets",
-        "pre-sale",
-        "early bird",
-        "register now",
-        "sign up",
-        "limited time",
-        "apply now",
-    ]
-
-    COMMITMENT_KEYWORDS = [
+    HARD_COMMITMENT_KEYWORDS = [
         "registration confirmed",
         "you're registered",
         "your ticket",
         "order confirmation",
         "receipt",
-        "due",
+        "meeting link",
+        "meeting id",
+        "check-in",
+        "check in",
+        "due:",
+        "due date",
         "deadline",
         "assignment",
         "homework",
-        "meeting",
-        "opening ceremony",
-        "check-in",
-        "see you",
+        "submission",
         "starts at",
-        "team formation",
-        "workshop",
-        "hackathon",
+        "schedule",
+        "agenda",
+        "see you at",
+        "required",
+        "reminder",
+    ]
+
+    SESSION_KEYWORDS = [
+        "opening ceremony",
         "ceremony",
+        "workshop",
+        "talk",
+        "panel",
+        "hackathon",
+        "team formation",
+        "mixer",
+        "keynote",
+        "lecture",
+        "event",
+        "meeting",
+    ]
+
+    PERSONAL_KEYWORDS = [
+        " you ",
+        " you're",
+        " your ",
+        " see you",
+        " can't wait to see",
+        " we'll have you",
+        " thanks for registering",
+        " reminder",
+    ]
+
+    THANK_YOU_PHRASES = [
+        "thank you for attending",
+        "thanks for attending",
+        "thank you for coming",
+        "thanks for coming",
+        "thank you for joining",
+        "thanks for joining",
+        "thank you for being part",
+        "thanks for being part",
+        "thanks for coming to our workshop",
+        "thank you for coming to our workshop",
+        "thanks for coming to our talk",
+        "thank you for coming to our talk",
+        "thanks for coming today",
+        "thank you for coming today",
+    ]
+
+    BLOCK_KEYWORDS = [
+        "claim your slice",
+        "claim your share",
+        "giveaway",
+        "raffle",
+        "lottery",
+        "discount code",
+        "coupon",
+        "order pickup",
+        "pick up your order",
+        "order ready",
+        "redeem",
+        "sale ends",
+    ]
+
+    DAY_NAMES = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
     ]
 
     def __init__(
@@ -94,21 +151,21 @@ Guidelines:
 
     def extract_events(self, message: GmailMessage) -> List[CourseEvent]:
         combined = self._combine_text(message)
-        promo = self._looks_promotional(combined)
         commitment = self._has_commitment_signal(combined)
+        blocked = self._is_blocklisted(combined)
 
         if self.debug:
             print(
                 "[email-debug]",
                 {
                     "subject": message.subject,
-                    "promotional": promo,
                     "commitment": commitment,
+                    "blocked": blocked,
                 },
             )
 
-        # Skip obvious marketing blasts unless they clearly mention a commitment.
-        if promo and not commitment:
+        # Only surface messages that mention a commitment and are not explicitly promotional/transactional.
+        if not commitment or blocked:
             return []
 
         user_prompt = self._build_prompt(message)
@@ -148,9 +205,9 @@ Guidelines:
         start_text = data.get("start")
         if not start_text:
             raise ValueError("missing start")
-        start = date_parser.isoparse(start_text)
+        start = self._parse_datetime(start_text)
         end_text = data.get("end")
-        end = date_parser.isoparse(end_text) if end_text else None
+        end = self._parse_datetime(end_text) if end_text else None
         location = data.get("location") or None
         desc_parts = [data.get("description") or "", f"Source email: {message.subject}"]
         description = "\n".join(part for part in desc_parts if part).strip() or None
@@ -170,7 +227,47 @@ Guidelines:
 
     def _has_commitment_signal(self, text: str) -> bool:
         lowered = text.lower()
-        return any(token in lowered for token in self.COMMITMENT_KEYWORDS)
+        hard = any(token in lowered for token in self.HARD_COMMITMENT_KEYWORDS)
+        if hard and not self._is_thank_you(lowered):
+            return True
+        session = any(token in lowered for token in self.SESSION_KEYWORDS)
+        personal = any(token in lowered for token in self.PERSONAL_KEYWORDS)
+        if session and personal and not self._is_thank_you(lowered):
+            return True
+        if self._has_newsletter_section(lowered):
+            return True
+        if "today" in lowered and self._mentions_time(lowered):
+            return not self._is_thank_you(lowered)
+        return False
+
+    def _is_thank_you(self, lowered: str) -> bool:
+        return any(phrase in lowered for phrase in self.THANK_YOU_PHRASES)
+
+    def _has_newsletter_section(self, lowered: str) -> bool:
+        if "events" not in lowered and "schedule" not in lowered:
+            return False
+        day_hits = sum(1 for day in self.DAY_NAMES if day in lowered)
+        return day_hits >= 2
+
+    def _is_blocklisted(self, text: str) -> bool:
+        lowered = text.lower()
+        return any(token in lowered for token in self.BLOCK_KEYWORDS)
+
+    TIME_PATTERN = re.compile(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b")
+    RANGE_PATTERN = re.compile(r"\b\d{1,2}\s*[-–]\s*\d{1,2}\b")
+
+    def _mentions_time(self, lowered: str) -> bool:
+        return bool(self.TIME_PATTERN.search(lowered) or self.RANGE_PATTERN.search(lowered))
+
+    def _parse_datetime(self, text: str | None):
+        if not text:
+            return None
+        try:
+            return date_parser.isoparse(text)
+        except ValueError:
+            # If the parser fails because time is missing, treat as all-day (date only)
+            date_only = date_parser.parse(text).date()
+            return datetime.combine(date_only, datetime.min.time(), tzinfo=timezone.utc)
 
 
 def _coerce_category(value) -> EventCategory:

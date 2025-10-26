@@ -30,6 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-events", type=int, default=100, help="Limit events pushed to Calendar")
     parser.add_argument(
+        "--csv-year",
+        type=int,
+        default=None,
+        help="Default year to apply when the CSV dates omit the year (e.g., 2025)",
+    )
+    parser.add_argument(
         "--console-oauth",
         action="store_true",
         help="Use console-based OAuth instead of opening a browser window",
@@ -60,6 +66,7 @@ def main(args: list[str] | None = None) -> None:
             default_start_hour=default_start_hour,
             default_start_minute=default_start_minute,
             default_duration_minutes=opts.duration,
+            fallback_year=opts.csv_year,
         )
     except Exception as exc:  # pragma: no cover - invalid file path
         console.print(f"[red]Failed to load CSV: {exc}[/]")

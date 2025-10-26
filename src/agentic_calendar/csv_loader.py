@@ -24,7 +24,7 @@ CATEGORY_HINTS: list[tuple[EventCategory, set[str]]] = [
 ]
 
 CATEGORY_FALLBACKS: dict[EventCategory, tuple[int, int, int]] = {
-    EventCategory.LECTURE: (1, 0, 80),
+    EventCategory.LECTURE: (13, 0, 80),
     EventCategory.DISCUSSION: (13, 0, 50),
     EventCategory.LAB: (14, 0, 120),
     EventCategory.HOMEWORK: (23, 59, 15),
@@ -40,6 +40,11 @@ TIME_RANGE_RE = re.compile(
     re.IGNORECASE,
 )
 TIME_SINGLE_RE = re.compile(r"(?P<single>\d{1,2}(?::\d{2})?\s*(?:am|pm))", re.IGNORECASE)
+SIMPLE_RANGE_RE = re.compile(
+    r"^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:[-–]|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$",
+    re.IGNORECASE,
+)
+SIMPLE_SINGLE_PLAIN_RE = re.compile(r"^\s*(\d{1,2})(?::(\d{2}))?\s*$")
 YEAR_IN_TEXT_RE = re.compile(r"\d{4}")
 TITLE_MAX_LENGTH = 80
 
@@ -50,6 +55,7 @@ def load_schedule_csv(
     default_start_hour: int = 9,
     default_start_minute: int = 0,
     default_duration_minutes: int = 50,
+    fallback_year: int | None = None,
 ) -> ExtractionReport:
     """Load course events from a CSV file and return an ExtractionReport."""
 
@@ -84,6 +90,7 @@ def load_schedule_csv(
                     default_start_minute=default_start_minute,
                     default_duration_minutes=default_duration_minutes,
                     source=str(csv_path),
+                    fallback_year=fallback_year,
                 )
             except ValueError as exc:
                 warnings.append(f"Row {idx}: {exc}")
@@ -103,6 +110,7 @@ def _row_to_event(
     default_start_minute: int,
     default_duration_minutes: int,
     source: str,
+    fallback_year: int | None,
 ) -> CourseEvent:
     normalized = {(_clean_key(key)): (value or "").strip() for key, value in row.items()}
 
@@ -110,7 +118,9 @@ def _row_to_event(
     if not date_text:
         raise ValueError("Missing required 'date' column.")
     if not YEAR_IN_TEXT_RE.search(date_text):
-        raise ValueError(f"Invalid date '{date_text}': expected a year (YYYY).")
+        if fallback_year is None:
+            raise ValueError(f"Invalid date '{date_text}': expected a year (YYYY).")
+        date_text = f"{date_text} {fallback_year}"
 
     title = _pop_first(normalized, ["title", "event", "name", "topic"])
     description = _pop_first(normalized, ["description", "notes", "summary"])
@@ -136,6 +146,8 @@ def _row_to_event(
         default_start_minute,
         default_duration_minutes,
     )
+
+    start_time_text, end_time_text = _normalize_time_inputs(start_time_text, end_time_text, fallback_start_hour)
 
     start = _compose_datetime(date_text, start_time_text, tzinfo, fallback_start_hour, fallback_start_minute)
     end = _compose_end_datetime(
@@ -224,6 +236,58 @@ def _compose_end_datetime(
         except ValueError:
             raise ValueError(f"Duration must be numeric; got '{duration_override}'.")
     return start + timedelta(minutes=minutes)
+
+
+def _normalize_time_inputs(
+    start_text: str | None,
+    end_text: str | None,
+    fallback_hour: int,
+) -> tuple[str | None, str | None]:
+    if not start_text:
+        return start_text, end_text
+
+    trimmed = start_text.strip()
+    range_match = SIMPLE_RANGE_RE.match(trimmed)
+    if range_match and not end_text:
+        start_hour = int(range_match.group(1))
+        start_minute = int(range_match.group(2) or 0)
+        start_meridiem = range_match.group(3)
+        end_hour = int(range_match.group(4))
+        end_minute = int(range_match.group(5) or 0)
+        end_meridiem = range_match.group(6) or start_meridiem
+
+        start_norm = _format_hour(start_hour, start_minute, start_meridiem, fallback_hour)
+        end_norm = _format_hour(end_hour, end_minute, end_meridiem, fallback_hour)
+        return start_norm, end_norm
+
+    single_plain = SIMPLE_SINGLE_PLAIN_RE.match(trimmed)
+    if single_plain:
+        hour = int(single_plain.group(1))
+        minute = int(single_plain.group(2) or 0)
+        return _format_hour(hour, minute, None, fallback_hour), end_text
+
+    return start_text, end_text
+
+
+def _format_hour(hour: int, minute: int, meridiem: str | None, fallback_hour: int) -> str:
+    original_hour = hour
+    if meridiem:
+        meridiem = meridiem.lower()
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        if meridiem == "am" and hour == 12:
+            hour = 0
+    else:
+        if fallback_hour >= 12 and hour < 12:
+            hour += 12
+        if fallback_hour < 12 and hour == 12:
+            hour = 0
+        # If fallback is morning but the derived hour ends up before fallback, assume pm
+        if fallback_hour >= 12 and hour < fallback_hour - 6:
+            hour += 12
+    # Clamp to 0-23 window
+    hour %= 24
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _resolve_category(*texts: str | None) -> EventCategory:
