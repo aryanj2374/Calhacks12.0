@@ -1,0 +1,207 @@
+:root {
+  /* Colors */
+  --bg-main: #f0f2f5; /* Light background */
+  --bg-panel: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --accent: #3b82f6;
+  --button-bg: #3b82f6;
+  --button-hover: #2563eb;
+
+  /* Fonts */
+  --font-primary: 'Inter', sans-serif;
+  --font-heading: 'Poppins', sans-serif;
+
+  /* Spacing */
+  --padding: 20px;
+  --border-radius: 12px;
+}
+
+/* Main layout */
+body, html, #root {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font-primary);
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+}
+
+/* Container and columns */
+.container {
+  display: flex;
+  height: 100vh;
+  gap: 15px;
+  padding: var(--padding);
+  justify-content: space-between;
+  align-items: stretch;
+}
+
+.left, .middle, .right {
+  padding: var(--padding);
+  border-radius: var(--border-radius);
+  background-color: var(--bg-panel);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  flex: 1;
+  min-width: 250px;
+}
+
+.middle {
+  flex: 2;
+  align-items: center;
+}
+
+.left, .right {
+  align-items: stretch;
+}
+
+/* Hover Animations */
+.left:hover, .middle:hover, .right:hover,
+.recommendations:hover, .todo:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+}
+
+/* Headings */
+h2 {
+  font-family: var(--font-heading);
+  margin-bottom: 15px;
+  color: var(--accent);
+  text-align: center;
+}
+
+/* Chat */
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-message {
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: var(--border-radius);
+  max-width: 70%;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease;
+}
+
+/* User messages (right) */
+.chat-message.user {
+  background-color: var(--button-bg);
+  color: #ffffff;
+  margin-left: auto;
+  text-align: right;
+}
+
+/* Bot messages (left) */
+.chat-message.bot {
+  background-color: #e5e7eb;
+  color: var(--text-primary);
+  margin-right: auto;
+  text-align: left;
+}
+
+.chat-message:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.chat-input {
+  display: flex;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 10px;
+  border-radius: var(--border-radius);
+  border: 1px solid #d1d5db;
+  background-color: #f9fafb;
+  color: var(--text-primary);
+}
+
+.chat-input input::placeholder {
+  color: var(--text-secondary);
+}
+
+.chat-input button {
+  padding: 10px 14px;
+  margin-left: 5px;
+  border-radius: var(--border-radius);
+  border: none;
+  background-color: var(--button-bg);
+  color: #ffffff;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.chat-input button:hover {
+  background-color: var(--button-hover);
+  transform: translateY(-2px) scale(1.05);
+}
+
+/* Calendar */
+.middle iframe {
+  width: 90%;
+  height: 90%;
+  border: none;
+  border-radius: var(--border-radius);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.middle iframe:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+
+/* Recommendations & To-Do */
+.recommendations, .todo {
+  flex: 1;
+  border-radius: var(--border-radius);
+  padding: var(--padding);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+  overflow-y: auto;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  margin-bottom: 15px;
+}
+
+.recommendations ul, .todo ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.recommendations li, .todo li {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: var(--border-radius);
+  background-color: #f3f4f6;
+  transition: transform 0.2s ease, opacity 0.3s ease;
+}
+
+.recommendations li:hover, .todo li:hover {
+  transform: translateY(-2px) scale(1.01);
+}
+
+/* To-Do item removal animation */
+.todo-item.removing {
+  opacity: 0;
+  transform: translateX(50px);
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .container {
+    flex-direction: column;
+  }
+  .left, .middle, .right {
+    width: 100%;
+    height: auto;
+  }
+  .middle iframe {
+    height: 500px;
+  }
+}

@@ -1,66 +1,70 @@
-# Course Calendar Agent
+# Getting Started with Create React App
 
-This project hosts a Python agent that ingests a CSV of course events (lectures, sections, exams, homework) and syncs them to Google Calendar using the official API. The CSV typically comes from a teammate’s scraper or manual export, allowing this service to focus on robust normalization plus Calendar delivery.
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## Quickstart
+## Available Scripts
 
-1. **Install dependencies**
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. **Create OAuth credentials**
-   - In the [Google Cloud Console](https://console.cloud.google.com/), create OAuth client credentials for a desktop app.
-   - Save the JSON as `credentials.json` in the project root.
-3. **Run the agent**
-   ```bash
-   python -m agentic_calendar.cli --calendar CalendarID
-   ```
-   - By default the CLI ingests `schedule.csv` in the repo root; override with `--csv /path/to/file.csv` if needed.
-   - If the file omits times, pass `--default-start HH:MM --duration minutes` to match your lecture/discussion slots (per-category defaults exist for lectures, sections, labs, exams, assignments, etc.).
-   - Add `--console-oauth` if you prefer to copy/paste the auth URL manually (no auto browser launch).
-   - Use `--replace-events` to delete previously synced events (matched by title/time window) before inserting fresh ones.
+In the project directory, you can run:
 
-The first run opens a browser window (or prints the authorization URL when `--console-oauth` is set) to authorize access. After authentication, the token is cached in `token.json`.
+### `npm start`
 
-## Development status
+Runs the app in the development mode.\
+Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 
-- CSV ingestion with fuzzy date parsing and fallback durations
-- Category hints tuned for lectures, discussions, labs, exams, quizzes, homework, and projects
-- Google Calendar service wrapper with batching
-- CLI that supports dry-run mode for testing without touching real calendars
+The page will reload when you make changes.\
+You may also see any lint errors in the console.
 
-Planned enhancements include integrating LLM-based extraction when course pages are inconsistent, and adding CSV/ICS export.
+### `npm test`
 
-## LLM-powered chat agent
+Launches the test runner in the interactive watch mode.\
+See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
 
-The `agentic_calendar.chat_cli` entry point lets you issue natural-language commands (add, delete, move events) which are grounded with lightweight RAG context and executed against Google Calendar. The chat agent talks to [LavaPayments](https://www.lavapayments.com/) which brokers access to GPT, Gemini, Claude, etc.
+### `npm run build`
 
-```bash
-python -m agentic_calendar.chat_cli \
-  --calendar primary \
-  --csv schedule.csv \
-  --forward-token '...paste your Lava forward token JSON...' \
-  --provider openai \
-  --model gpt-4o-mini \
-  --dry-run
-```
+Builds the app for production to the `build` folder.\
+It correctly bundles React in production mode and optimizes the build for the best performance.
 
-Environment variables:
+The build is minified and the filenames include the hashes.\
+Your app is ready to be deployed!
 
-- `LAVAPAY_FORWARD_TOKEN` / `LAVA_FORWARD_TOKEN` – copy the “Self Forward Token” JSON from **Build → Secret Keys → Self Forward Token**. This is what the `--forward-token` flag expects.
-- `LAVAPAY_BASE_URL` – override the default gateway (defaults to `https://api.lavapayments.com/v1`).
-- `LAVAPAY_TARGET_URL` – optional override for the upstream model endpoint; defaults to OpenAI chat completions when `--provider openai`.
-- `LAVAPAY_PROVIDER` / `LAVAPAY_MODEL` – optional defaults for the CLI flags.
+See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-When `--dry-run` is omitted the agent will delete/move/create events via the Google Calendar API using the same OAuth credentials as the CSV sync workflow.
+### `npm run eject`
 
-## CSV format
+**Note: this is a one-way operation. Once you `eject`, you can't go back!**
 
-Two layouts are supported:
+If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-1. **Normalized headers** – `title,date,start_time,end_time,category,location,description`. These fields map directly to event attributes and override defaults.
-2. **Scraper feed (default)** – `Date,Type,Description` as produced by `schedule.csv`. The loader infers titles from the description, maps `Type` to categories (Lecture, Discussion, Assignment, Exam, etc.), and hunts for time ranges like `7pm-9pm` inside the description. Missing times fall back to category-specific defaults (e.g., lectures at 11:00, assignments due 23:59) unless overridden via `--default-start/--duration`.
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
 
-In both cases `date`/`Date` is required. Optional columns include `duration` (minutes), `location`, and explicit titles. Unrecognized categories fall back to keyword-based guessing (entries containing “midterm” become exams automatically).
+You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+
+## Learn More
+
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+
+To learn React, check out the [React documentation](https://reactjs.org/).
+
+### Code Splitting
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+
+### Analyzing the Bundle Size
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+
+### Making a Progressive Web App
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+
+### Advanced Configuration
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+
+### Deployment
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+
+### `npm run build` fails to minify
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
