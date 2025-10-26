@@ -137,16 +137,36 @@ def scrape_course_schedule(url):
 
             events.extend(row_events)
 
-    return events
+    # Deduplicate exams only: keep one per Description, prefer one with time
+    unique_events = []
+    seen_exams = {}
+
+    for e in events:
+        if e["Type"] == "Exam":
+            key = e["Description"]
+            if key not in seen_exams:
+                seen_exams[key] = e
+            else:
+                if seen_exams[key]["Time"] == "" and e["Time"] != "":
+                    seen_exams[key] = e
+        else:
+            unique_events.append(e)
+
+    # Add deduplicated exams
+    unique_events.extend(seen_exams.values())
+
+    return unique_events
 
 def save_to_csv(events, filename="schedule.csv"):
     if not events:
         print("No events found to save.")
         return
+    # Sort by date for convenience
+    events_sorted = sorted(events, key=lambda x: datetime.strptime(x["Date"] + f" {datetime.now().year}", "%b %d %Y"))
     with open(filename, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["Date", "Time", "Type", "Description"])
         writer.writeheader()
-        for e in events:
+        for e in events_sorted:
             writer.writerow(e)
     print(f"✅ Schedule saved to {filename} successfully!")
 
