@@ -20,6 +20,7 @@ class GmailIngestResult:
     created_event_ids: List[str]
     processed_message_ids: List[str]
     errors: List[str]
+    messages_examined: int = 0
 
     @property
     def new_event_count(self) -> int:
@@ -43,9 +44,25 @@ def ingest_gmail(
     store = ProcessedMessageStore(Path(processed_store))
 
     raw_messages = gmail_client.fetch_messages(query=query)
+    messages_examined = len(raw_messages)
+    if not raw_messages:
+        return GmailIngestResult(
+            events=[],
+            created_event_ids=[],
+            processed_message_ids=[],
+            errors=[],
+            messages_examined=0,
+        )
+
     new_messages = store.filter_new(raw_messages)
     if not new_messages:
-        return GmailIngestResult(events=[], created_event_ids=[], processed_message_ids=[], errors=[])
+        return GmailIngestResult(
+            events=[],
+            created_event_ids=[],
+            processed_message_ids=[],
+            errors=[],
+            messages_examined=messages_examined,
+        )
 
     extractor = EmailEventExtractor(
         llm_client,
@@ -66,14 +83,15 @@ def ingest_gmail(
             errors.append("Calendar client is not configured; skipping Calendar writes.")
         else:
             created = calendar_client.create_events(events)
-            store.mark_processed(new_messages)
 
+    store.mark_processed(new_messages)
 
     return GmailIngestResult(
         events=events,
         created_event_ids=created,
         processed_message_ids=[msg.id for msg in new_messages],
         errors=errors,
+        messages_examined=messages_examined,
     )
 
 

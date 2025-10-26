@@ -15,6 +15,7 @@ function App() {
     []
   );
   const [calendarView, setCalendarView] = useState("AGENDA");
+  const [calendarRefresh, setCalendarRefresh] = useState(0);
 
   const calendarSrc = useMemo(() => {
     const base = `https://calendar.google.com/calendar/embed`;
@@ -25,9 +26,10 @@ function App() {
       showCalendars: "0",
       showTabs: "0",
       showTitle: "0",
+      refresh: String(calendarRefresh),
     });
     return `${base}?${params.toString()}`;
-  }, [calendarId, calendarTz, calendarView]);
+  }, [calendarId, calendarTz, calendarView, calendarRefresh]);
 
   const [messages, setMessages] = useState([
     {
@@ -41,9 +43,12 @@ function App() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [syncInfo, setSyncInfo] = useState(null);
+  const [gymStatus, setGymStatus] = useState(null);
+  const [todos, setTodos] = useState([]);
   const [showIdeas, setShowIdeas] = useState(true);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
   const chatRef = useRef(null);
+  const lastSyncTimestampRef = useRef(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -53,16 +58,52 @@ function App() {
       }
       const payload = await response.json();
       setSyncInfo(payload.gmail_sync || null);
+      setGymStatus(payload.gym_status || null);
+      const nextTimestamp = payload.gmail_sync?.timestamp || null;
+      if (nextTimestamp) {
+        if (nextTimestamp !== lastSyncTimestampRef.current) {
+          lastSyncTimestampRef.current = nextTimestamp;
+          setCalendarRefresh((count) => count + 1);
+        }
+      } else {
+        lastSyncTimestampRef.current = null;
+      }
     } catch (err) {
       console.error("Failed to fetch status", err);
     }
   }, [apiBaseUrl]);
 
+  const fetchTodos = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/todos`);
+      if (!response.ok) {
+        throw new Error("Todo request failed");
+      }
+      const payload = await response.json();
+      if (!Array.isArray(payload)) {
+        throw new Error("Todo payload malformed");
+      }
+      setTodos(
+        payload.map((item, idx) => ({
+          id: item.id ?? `todo-${idx}`,
+          text: item.text ?? "",
+          removing: false,
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to fetch todos", err);
+    }
+  }, [apiBaseUrl]);
+
   useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, 60000);
+    const run = () => {
+      fetchStatus();
+      fetchTodos();
+    };
+    run();
+    const id = setInterval(run, 60000);
     return () => clearInterval(id);
-  }, [fetchStatus]);
+  }, [fetchStatus, fetchTodos]);
 
   const formatSyncTime = (timestamp, options = {}) => {
     if (!timestamp) return "—";
@@ -79,23 +120,44 @@ function App() {
 
   const syncErrors = syncInfo?.errors || [];
 
-  const [recommendations] = useState([
-    "Skim tomorrow's lecture slides",
-    "Confirm study group time",
-    "Block focus time for project",
-  ]);
-
-  const [todos, setTodos] = useState([
-    { id: 1, text: "Final project milestone", removing: false },
-    { id: 2, text: "Send mentor update", removing: false },
-    { id: 3, text: "Revisit HW feedback", removing: false },
-  ]);
+  const defaultRecommendations = useMemo(
+    () => [
+      "Check the RSF crowd meter before heading out",
+      "Confirm study group time",
+      "Block focus time for project",
+    ],
+    []
+  );
+  const [recommendations, setRecommendations] = useState(defaultRecommendations);
 
   useEffect(() => {
     if (chatRef.current) {
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    setRecommendations(() => {
+      const next = [...defaultRecommendations];
+      if (!gymStatus) {
+        return next;
+      }
+      if (gymStatus.error) {
+        next[0] = `RSF crowd data unavailable (${gymStatus.error})`;
+        return next;
+      }
+      const percent = gymStatus.occupancy_percent;
+      if (typeof percent === "number") {
+        next[0] =
+          percent < 50
+            ? `RSF · ${percent}% full · Hit the gym!`
+            : `RSF · ${percent}% full · Crowded now—wait till off-peak hours`;
+      } else {
+        next[0] = "RSF crowd status unavailable";
+      }
+      return next;
+    });
+  }, [gymStatus, defaultRecommendations]);
 
   const handleSend = async () => {
     if (!input.trim() || sending) return;
@@ -163,6 +225,11 @@ function App() {
         }
       }
       setShowIdeas(false);
+      fetchTodos();
+      fetchStatus();
+      if (payload.executed) {
+        setCalendarRefresh((count) => count + 1);
+      }
     } catch (err) {
       const botMessage = {
         id: Date.now() + 2,
@@ -328,8 +395,18 @@ function App() {
             {syncInfo ? (
               <>
                 <div className="sync-meta">
-                  <span>{syncInfo.event_count} events parsed</span>
-                  <span>{syncInfo.created_count} added</span>
+                  <div className="sync-count">
+                    <span>{syncInfo.event_count}</span>
+                    <span>events parsed</span>
+                  </div>
+                  <div className="sync-count">
+                    <span>{syncInfo.created_count}</span>
+                    <span>events added</span>
+                  </div>
+                  <div className="sync-count">
+                    <span>{syncInfo.messages_examined ?? 0}</span>
+                    <span>emails scanned</span>
+                  </div>
                 </div>
                 {syncErrors.length ? (
                   <ul className="sync-errors">

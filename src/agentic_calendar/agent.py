@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo, timedelta
 from enum import Enum
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from dateutil import parser as date_parser
 from pydantic import BaseModel, ValidationError, field_validator
@@ -79,6 +80,7 @@ Always reply with valid JSON only, no extra prose. Use this schema:
         calendar_client: GoogleCalendarClient | None,
         llm_client: LavaPaymentsLLMClient,
         default_timezone: tzinfo | None = None,
+        on_events_updated: Callable[[Sequence[CourseEvent]], None] | None = None,
     ):
         self.events = list(events)
         self.calendar_client = calendar_client
@@ -86,6 +88,16 @@ Always reply with valid JSON only, no extra prose. Use this schema:
         self._history: List[dict[str, str]] = []
         self._rag_index = CalendarRAGIndex(self.events)
         self._default_timezone = default_timezone
+        self._events_updated_callback = on_events_updated
+        self._logger = logging.getLogger(__name__)
+
+    def _notify_events_updated(self) -> None:
+        if not self._events_updated_callback:
+            return
+        try:
+            self._events_updated_callback(self.events)
+        except Exception:  # pragma: no cover - defensive logging
+            self._logger.exception("events_updated callback failed")
 
     def handle_request(self, user_text: str, *, dry_run: bool = False) -> AgentResult:
         """Send the request to the LLM, parse the JSON command, and execute it."""
@@ -151,6 +163,7 @@ Always reply with valid JSON only, no extra prose. Use this schema:
             
             self.events.append(course_event)
             self._rag_index = CalendarRAGIndex(self.events)
+            self._notify_events_updated()
             executed = not dry_run and self.calendar_client is not None
             if executed:
                 self.calendar_client.create_events([course_event])
@@ -175,6 +188,7 @@ Always reply with valid JSON only, no extra prose. Use this schema:
             self._remove_local_event(target, rebuild=False)
             self.events.append(updated)
             self._rag_index = CalendarRAGIndex(self.events)
+            self._notify_events_updated()
 
             executed = not dry_run and self.calendar_client is not None
             if executed:
@@ -208,11 +222,13 @@ Always reply with valid JSON only, no extra prose. Use this schema:
         ]
         if rebuild:
             self._rag_index = CalendarRAGIndex(self.events)
+            self._notify_events_updated()
 
     def replace_events(self, events: Sequence[CourseEvent]) -> None:
         """Replace the agent's event list and rebuild RAG context."""
         self.events = list(events)
         self._rag_index = CalendarRAGIndex(self.events)
+        self._notify_events_updated()
 
     def append_events(self, events: Sequence[CourseEvent]) -> None:
         """Append new events to the agent's cache."""
@@ -220,6 +236,7 @@ Always reply with valid JSON only, no extra prose. Use this schema:
             return
         self.events.extend(events)
         self._rag_index = CalendarRAGIndex(self.events)
+        self._notify_events_updated()
 
     def handle_confirmation(self, user_response: str, pending_event: CourseEvent, *, dry_run: bool = False) -> AgentResult:
         """Handle user confirmation for a pending event with conflicts."""
@@ -229,6 +246,7 @@ Always reply with valid JSON only, no extra prose. Use this schema:
             # User confirmed, add the event
             self.events.append(pending_event)
             self._rag_index = CalendarRAGIndex(self.events)
+            self._notify_events_updated()
             executed = not dry_run and self.calendar_client is not None
             if executed:
                 self.calendar_client.create_events([pending_event])

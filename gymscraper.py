@@ -1,41 +1,62 @@
+from __future__ import annotations
+
 import re
+from contextlib import suppress
+from typing import Optional
+
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Setup headless Chrome
-options = Options()
-options.add_argument("--headless")
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-
-driver.get("https://recwell.berkeley.edu/facilities/recreational-sports-facility-rsf/rsf-weight-room-crowd-meter/")
-
-# Switch to iframe
-iframe = WebDriverWait(driver, 10).until(
-    EC.presence_of_element_located((By.XPATH, '//iframe[@title="Weightroom Capacity"]'))
+RSF_WEIGHT_ROOM_URL = (
+    "https://recwell.berkeley.edu/facilities/recreational-sports-facility-rsf/rsf-weight-room-crowd-meter/"
 )
-driver.switch_to.frame(iframe)
 
-# Wait until any span inside the iframe contains "% Full"
-def span_has_full_text(driver):
+
+def _span_has_full_text(driver: webdriver.Chrome) -> Optional[str]:
+    """Return the text content of the span that contains '% Full', if present."""
     spans = driver.find_elements(By.TAG_NAME, "span")
     for span in spans:
         if "% Full" in span.text:
-            return span
-    return False
+            return span.text
+    return None
 
-full_span = WebDriverWait(driver, 20).until(span_has_full_text)
 
-# Extract only the numeric part using regex
-match = re.search(r'\d+', full_span.text)
-if match:
-    occupancy_percent = int(match.group())
-    print(f"Current weight room occupancy: {occupancy_percent}%")
-else:
-    print("Could not extract occupancy number.")
+def fetch_rsf_occupancy_percent(timeout: int = 20) -> int:
+    """Scrape the RSF weight room crowd meter and return the occupancy percentage."""
+    options = Options()
+    # new headless helps avoid deprecated warning and better parity with Chrome 109+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
-driver.quit()
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    try:
+        driver.get(RSF_WEIGHT_ROOM_URL)
+        iframe = WebDriverWait(driver, 10).until(
+            lambda d: d.find_element(By.XPATH, '//iframe[@title="Weightroom Capacity"]')
+        )
+        driver.switch_to.frame(iframe)
+        full_text = WebDriverWait(driver, timeout).until(_span_has_full_text)
+        if not full_text:
+            raise RuntimeError("RSF occupancy span not found")
+
+        match = re.search(r"(\d+)", full_text)
+        if not match:
+            raise RuntimeError(f"Could not extract occupancy number from '{full_text}'")
+        return int(match.group(1))
+    finally:
+        with suppress(Exception):
+            driver.quit()
+
+
+if __name__ == "__main__":
+    try:
+        occupancy = fetch_rsf_occupancy_percent()
+    except Exception as exc:  # pragma: no cover - convenience path
+        print(f"Could not extract occupancy number: {exc}")
+    else:
+        print(f"Current weight room occupancy: {occupancy}%")

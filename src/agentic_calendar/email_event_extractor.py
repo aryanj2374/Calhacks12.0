@@ -7,6 +7,7 @@ from typing import List
 
 import re
 from dateutil import parser as date_parser
+from dateutil import tz
 
 from .gmail_client import GmailMessage
 from .llm_client import LavaPaymentsLLMClient
@@ -148,6 +149,7 @@ Guidelines:
         self.llm_client = llm_client
         self.timezone_name = timezone_name
         self.debug = bool(os.environ.get("EMAIL_DEBUG"))
+        self._tzinfo = tz.gettz(timezone_name) or timezone.utc
 
     def extract_events(self, message: GmailMessage) -> List[CourseEvent]:
         combined = self._combine_text(message)
@@ -236,8 +238,10 @@ Guidelines:
             return True
         if self._has_newsletter_section(lowered):
             return True
-        if "today" in lowered and self._mentions_time(lowered):
+        if ("today" in lowered or "tonight" in lowered or "tomorrow" in lowered) and self._mentions_time(lowered):
             return not self._is_thank_you(lowered)
+        if self._mentions_time(lowered) and self._mentions_explicit_date(lowered):
+            return True
         return False
 
     def _is_thank_you(self, lowered: str) -> bool:
@@ -259,15 +263,31 @@ Guidelines:
     def _mentions_time(self, lowered: str) -> bool:
         return bool(self.TIME_PATTERN.search(lowered) or self.RANGE_PATTERN.search(lowered))
 
+    DATE_PATTERN = re.compile(
+        r"\b(?:"
+        r"\d{1,2}/\d{1,2}(?:/\d{2,4})?"
+        r"|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}"
+        r")\b"
+    )
+
+    def _mentions_explicit_date(self, lowered: str) -> bool:
+        return bool(self.DATE_PATTERN.search(lowered))
+
     def _parse_datetime(self, text: str | None):
         if not text:
             return None
         try:
-            return date_parser.isoparse(text)
+            parsed = date_parser.isoparse(text)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=self._tzinfo)
+            if isinstance(parsed.tzinfo, tz.tzoffset):
+                return parsed.astimezone(self._tzinfo)
+            return parsed
         except ValueError:
             # If the parser fails because time is missing, treat as all-day (date only)
             date_only = date_parser.parse(text).date()
-            return datetime.combine(date_only, datetime.min.time(), tzinfo=timezone.utc)
+            localized = datetime.combine(date_only, datetime.min.time(), tzinfo=self._tzinfo)
+            return localized
 
 
 def _coerce_category(value) -> EventCategory:

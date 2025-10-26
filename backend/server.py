@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
+from threading import Lock
 from typing import List, Optional, Sequence
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +22,7 @@ from agentic_calendar.gmail_client import GmailClient
 from agentic_calendar.gmail_ingest import ingest_gmail
 from agentic_calendar.llm_client import LavaPaymentsLLMClient
 from agentic_calendar.models import CourseEvent
+from gymscraper import fetch_rsf_occupancy_percent
 
 try:
     from calhacks import save_to_csv, scrape_course_schedule
@@ -32,6 +35,20 @@ logging.basicConfig(level=logging.INFO)
 
 COURSE_KEYWORDS = ("course", "syllabus", "schedule", "class")
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+TODO_SYSTEM_PROMPT = """
+You are a helpful assistant that reads a list of a student's scheduled events for today and suggests
+three high-impact focus tasks for them to prioritize. The tasks should be action-oriented and specific,
+not generic. If the schedule is light and you cannot find three meaningful tasks, respond with an empty
+JSON array instead of inventing filler items.
+
+Return JSON only. Use this schema:
+[
+  {"text": "<short actionable focus item>"},
+  ...
+]
+
+The array may contain from zero to three items. Do not include any other fields or commentary.
+""".strip()
 
 
 def _env_bool(key: str, default: bool = False) -> bool:
@@ -108,8 +125,20 @@ class GmailSyncInfo(BaseModel):
     errors: List[str] = Field(default_factory=list)
 
 
+class TodoItem(BaseModel):
+    id: str
+    text: str
+
+
+class GymStatus(BaseModel):
+    occupancy_percent: Optional[int] = None
+    last_updated: Optional[datetime] = None
+    error: Optional[str] = None
+
+
 class StatusResponse(BaseModel):
     gmail_sync: Optional[GmailSyncInfo] = None
+    gym_status: Optional[GymStatus] = None
 
 
 class CourseImportSummary(BaseModel):
@@ -141,16 +170,26 @@ class AgentService:
             model=config.llm_model,
         )
         self._default_tzinfo = tz.gettz(config.timezone) or timezone.utc
+        self._lock = asyncio.Lock()
+        self._gym_lock = asyncio.Lock()
+        self._todo_lock = Lock()
+        self._todo_cache: tuple[date, List[TodoItem]] | None = None
+        self._todo_cache_expiration: datetime | None = None
+        self._todo_cache_ttl = timedelta(minutes=10)
+        self._todo_next_refresh: datetime | None = None
+        self._csv_source = str(self.config.schedule_csv.resolve())
         self.agent = CalendarAgent(
             events=[],
             calendar_client=self.calendar_client,
             llm_client=self.llm_client,
             default_timezone=self._default_tzinfo,
+            on_events_updated=self._handle_events_updated,
         )
-        self._lock = asyncio.Lock()
-        self._csv_source = str(self.config.schedule_csv.resolve())
         self._load_initial_events()
         self._last_gmail_sync: GmailSyncInfo | None = None
+        self._gym_status_cache: GymStatus | None = None
+        self._gym_status_expiration: datetime | None = None
+        self._gym_cache_ttl = timedelta(minutes=5)
 
     async def handle_chat(self, text: str) -> AgentResult:
         async with self._lock:
@@ -298,6 +337,15 @@ class AgentService:
         except Exception:
             return False
 
+    def _handle_events_updated(self, _events: Sequence[CourseEvent]) -> None:
+        self._invalidate_todo_cache()
+
+    def _invalidate_todo_cache(self) -> None:
+        with self._todo_lock:
+            self._todo_cache = None
+            self._todo_cache_expiration = None
+            self._todo_next_refresh = None
+
     def _record_gmail_sync(self, result, *, applied: bool) -> None:
         self._last_gmail_sync = GmailSyncInfo(
             timestamp=datetime.now(timezone.utc),
@@ -309,6 +357,154 @@ class AgentService:
 
     def get_gmail_sync_info(self) -> GmailSyncInfo | None:
         return self._last_gmail_sync
+
+    async def get_gym_status(self) -> GymStatus | None:
+        now = datetime.now(timezone.utc)
+        async with self._gym_lock:
+            if (
+                self._gym_status_cache
+                and self._gym_status_expiration
+                and now < self._gym_status_expiration
+            ):
+                return self._gym_status_cache
+
+            status = await asyncio.to_thread(self._fetch_gym_status)
+            self._gym_status_cache = status
+            self._gym_status_expiration = now + self._gym_cache_ttl
+            return status
+
+    def _fetch_gym_status(self) -> GymStatus:
+        timestamp = datetime.now(timezone.utc)
+        try:
+            percent = fetch_rsf_occupancy_percent()
+        except Exception as exc:  # pragma: no cover - scraper best effort
+            logger.warning("Gym scraper failed: %s", exc)
+            return GymStatus(last_updated=timestamp, error=str(exc))
+        return GymStatus(occupancy_percent=percent, last_updated=timestamp)
+
+    async def get_daily_focus_items(self, *, force_refresh: bool = False) -> List[TodoItem]:
+        tz_local = self._default_tzinfo or timezone.utc
+        now_local = datetime.now(tz_local)
+        now_utc = datetime.now(timezone.utc)
+
+        with self._todo_lock:
+            cache_entry = self._todo_cache
+            cache_expiration = self._todo_cache_expiration
+            next_refresh = self._todo_next_refresh
+        if (
+            not force_refresh
+            and cache_entry
+            and cache_expiration
+            and now_utc < cache_expiration
+            and cache_entry[0] == now_local.date()
+            and (next_refresh is None or now_utc < next_refresh)
+        ):
+            return list(cache_entry[1])
+
+        async with self._lock:
+            events_snapshot = list(self.agent.events)
+
+        todays_events = self._events_for_date(events_snapshot, now_local.date(), tz_local)
+        if not todays_events:
+            result = [TodoItem(id="focus-break", text="Done for the day - take a break!")]
+        else:
+            schedule_summary = self._build_schedule_summary(todays_events, tz_local)
+            prompt = (
+                f"Today is {now_local.strftime('%A, %B %d, %Y')}.\n"
+                f"Timezone: {tz_local}.\n"
+                "Here is the user's schedule for today:\n"
+                f"{schedule_summary}\n\n"
+                "Suggest up to three specific, high-impact action items the user should focus on today."
+            )
+
+            try:
+                response = await asyncio.to_thread(
+                    self.llm_client.chat,
+                    [{"role": "user", "content": prompt}],
+                    system_prompt=TODO_SYSTEM_PROMPT,
+                )
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.warning("Failed to generate focus items via LLM: %s", exc)
+                result = [TodoItem(id="focus-break", text="Done for the day - take a break!")]
+            else:
+                focus_items = self._parse_focus_response(response)
+                if len(focus_items) >= 3:
+                    result = [
+                        TodoItem(id=f"focus-{idx}", text=text)
+                        for idx, text in enumerate(focus_items[:3], start=1)
+                    ]
+                else:
+                    if focus_items:
+                        logger.info("LLM returned fewer than 3 focus items; showing fallback card.")
+                    result = [TodoItem(id="focus-break", text="Done for the day - take a break!")]
+
+        with self._todo_lock:
+            self._todo_cache = (now_local.date(), result)
+            self._todo_cache_expiration = datetime.now(timezone.utc) + self._todo_cache_ttl
+            next_midnight_local = datetime.combine(now_local.date() + timedelta(days=1), time.min, tz_local)
+            self._todo_next_refresh = next_midnight_local.astimezone(timezone.utc)
+        return list(result)
+
+    async def prime_daily_focus_items(self) -> None:
+        try:
+            await self.get_daily_focus_items(force_refresh=True)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception("Failed to prime daily focus items")
+
+    def _events_for_date(
+        self, events: Sequence[CourseEvent], target_date: date, tz_local: tzinfo
+    ) -> List[CourseEvent]:
+        start_of_day = datetime.combine(target_date, time.min, tz_local)
+        end_of_day = start_of_day + timedelta(days=1)
+        todays: List[CourseEvent] = []
+        for event in events:
+            event_start = self._ensure_timezone(event.start, tz_local)
+            if start_of_day <= event_start < end_of_day:
+                todays.append(event)
+        return todays
+
+    def _build_schedule_summary(self, events: Sequence[CourseEvent], tz_local: tzinfo) -> str:
+        parts: List[str] = []
+        for event in sorted(events, key=lambda evt: self._ensure_timezone(evt.start, tz_local)):
+            start_local = self._ensure_timezone(event.start, tz_local)
+            end_local = self._ensure_timezone(event.end, tz_local) if event.end else None
+            time_range = start_local.strftime("%I:%M %p").lstrip("0")
+            if end_local:
+                time_range = f"{time_range} - {end_local.strftime('%I:%M %p').lstrip('0')}"
+            location = f" @ {event.location}" if event.location else ""
+            parts.append(f"- {time_range}: {event.title}{location}")
+        return "\n".join(parts) or "- No scheduled events."
+
+    def _ensure_timezone(self, dt_obj: datetime, tz_local: tzinfo) -> datetime:
+        if dt_obj.tzinfo is None:
+            return dt_obj.replace(tzinfo=tz_local)
+        return dt_obj.astimezone(tz_local)
+
+    def _parse_focus_response(self, response: str) -> List[str]:
+        try:
+            data = json.loads(response)
+        except json.JSONDecodeError:
+            logger.warning("LLM todo response was not valid JSON: %s", response[:200])
+            return []
+
+        if not isinstance(data, list):
+            logger.warning("LLM todo response was not a list: %s", data)
+            return []
+
+        items: List[str] = []
+        for entry in data:
+            text: Optional[str] = None
+            if isinstance(entry, str):
+                text = entry
+            elif isinstance(entry, dict):
+                raw = entry.get("text")
+                if raw is not None:
+                    text = str(raw)
+            if text:
+                normalized = text.strip()
+                if normalized:
+                    items.append(normalized)
+        return items
 
 
 config = ServerConfig()
@@ -337,6 +533,7 @@ def _extract_course_link(message: str) -> Optional[str]:
 
 @app.on_event("startup")
 async def _startup() -> None:
+    await service.prime_daily_focus_items()
     if not config.enable_gmail_polling:
         logger.info("Gmail polling disabled (set ENABLE_GMAIL_POLLING=true to enable).")
         return
@@ -420,4 +617,10 @@ async def confirm(request: ConfirmationRequest) -> ChatResponse:
 
 @app.get("/api/status", response_model=StatusResponse)
 async def status() -> StatusResponse:
-    return StatusResponse(gmail_sync=service.get_gmail_sync_info())
+    gym_status = await service.get_gym_status()
+    return StatusResponse(gmail_sync=service.get_gmail_sync_info(), gym_status=gym_status)
+
+
+@app.get("/api/todos", response_model=List[TodoItem])
+async def todos() -> List[TodoItem]:
+    return await service.get_daily_focus_items()
