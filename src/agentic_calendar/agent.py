@@ -30,6 +30,8 @@ class AgentResult:
     action: CalendarAction
     detail: str
     executed: bool
+    needs_confirmation: bool = False
+    pending_event: Optional[CourseEvent] = None
 
 
 class CalendarAgent:
@@ -55,7 +57,7 @@ Always reply with valid JSON only, no extra prose. Use this schema:
   "new_start": "ISO datetime for move operations",
   "new_end": "ISO datetime for move operations"
 }
-Rules:
+ Rules:
 - add_event requires an `event` block (title + start time).
 - delete_event and move_event must include enough detail to uniquely identify an existing item.
 - list_events just echoes the supplied calendar context (no mutation).
@@ -63,6 +65,11 @@ Rules:
 - When the user gives a clock time without am/pm, interpret it as the next occurrence *after* the current time (e.g., if it's 5pm now and they say "7", schedule 7pm). Only fall back to the morning hour if the time has already passed for the day and the user clearly meant the next day.
 - Apply the same rule to time ranges like "10-11" or "10 to 11": treat them as hour windows in the upcoming evening when the current time is later in the day, unless the user specifies otherwise.
 - If the user explicitly says "today" with an ambiguous time (e.g., "today at 1130"), convert it to the evening slot when the current time is already in the afternoon/evening. Example: if the provided current datetime is 2025-02-01T20:46:00-08:00 and the user says "meeting today at 1130", you must schedule it for 2025-02-01T23:30:00-08:00 (11:30 PM), not 11:30 AM.
+- Only use delete_event when the user explicitly asks to remove/cancel something. Statements like "I have a meeting…" or "add…" without delete keywords should always map to add_event.
+- Examples:
+  • User: "I have a meeting today at 8pm with the team" → action must be add_event (never delete).
+  • User: "Cancel tomorrow's standup" → action delete_event.
+  • User: "Do I already have something at 5?" → action list_events (with context in detail).
 """
 
     def __init__(
@@ -97,29 +104,57 @@ Rules:
         )
 
         command = self._parse_command(raw_response)
-        detail = self._execute_command(command, dry_run=dry_run)
+        if self._should_force_add(user_text, command.action):
+            if len(self._history) >= 2:
+                self._history = self._history[:-2]
+            hint_prompt = (
+                f"{prompt}\n\n"
+                "The user explicitly asked to add/schedule a new event. Respond with action \"add_event\" "
+                "and include the full event payload."
+            )
+            hint_messages = [*self._history, {"role": "user", "content": hint_prompt}]
+            raw_response = self.llm_client.chat(hint_messages, system_prompt=self.SYSTEM_PROMPT.strip())
+            self._history.extend(
+                [
+                    {"role": "user", "content": hint_prompt},
+                    {"role": "assistant", "content": raw_response},
+                ]
+            )
+            command = self._parse_command(raw_response)
+
+        detail, executed, needs_confirmation, pending_event = self._execute_command(command, dry_run=dry_run)
         return AgentResult(
             raw_response=raw_response,
             action=command.action,
             detail=detail,
-            executed=not dry_run,
+            executed=executed,
+            needs_confirmation=needs_confirmation,
+            pending_event=pending_event,
         )
 
-    def _execute_command(self, command: "CalendarCommand", *, dry_run: bool) -> str:
+    def _execute_command(self, command: "CalendarCommand", *, dry_run: bool) -> tuple[str, bool, bool, Optional[CourseEvent]]:
         if command.action == CalendarAction.LIST_EVENTS:
             focus = command.target_title or ""
-            return self._rag_index.build_context(focus)
+            prefix = command.detail or ""
+            context = self._rag_index.build_context(focus)
+            return f"{prefix}\n{context}".strip(), False, False, None
 
         if command.action == CalendarAction.ADD_EVENT:
             if command.event is None:
                 raise ValueError("LLM response missing 'event' payload for add_event")
             course_event = command.event.to_course_event()
+            
+            # Check for time conflicts before adding
+            conflicts = self._detect_time_conflicts(course_event)
+            if conflicts:
+                return self._format_conflict_message(course_event, conflicts), False, True, course_event
+            
             self.events.append(course_event)
             self._rag_index = CalendarRAGIndex(self.events)
             executed = not dry_run and self.calendar_client is not None
             if executed:
                 self.calendar_client.create_events([course_event])
-            return self._format_add_message(course_event, executed=executed)
+            return self._format_add_message(course_event, executed=executed), executed, False, None
 
         if command.action == CalendarAction.DELETE_EVENT:
             target = self._locate_event(command.target_title, command.target_start)
@@ -127,7 +162,7 @@ Rules:
             executed = not dry_run and self.calendar_client is not None
             if executed:
                 self.calendar_client.delete_matching_events([target])
-            return self._format_delete_message(target, executed=executed)
+            return self._format_delete_message(target, executed=executed), executed, False, None
 
         if command.action == CalendarAction.MOVE_EVENT:
             target = self._locate_event(command.target_title, command.target_start)
@@ -145,7 +180,7 @@ Rules:
             if executed:
                 self.calendar_client.delete_matching_events([target])
                 self.calendar_client.create_events([updated])
-            return self._format_move_message(target, updated, executed=executed)
+            return self._format_move_message(target, updated, executed=executed), executed, False, None
 
         raise ValueError(f"Unsupported action '{command.action}'")
 
@@ -185,6 +220,79 @@ Rules:
             return
         self.events.extend(events)
         self._rag_index = CalendarRAGIndex(self.events)
+
+    def handle_confirmation(self, user_response: str, pending_event: CourseEvent, *, dry_run: bool = False) -> AgentResult:
+        """Handle user confirmation for a pending event with conflicts."""
+        user_response_lower = user_response.lower().strip()
+        
+        if user_response_lower in ['yes', 'y', 'confirm', 'ok']:
+            # User confirmed, add the event
+            self.events.append(pending_event)
+            self._rag_index = CalendarRAGIndex(self.events)
+            executed = not dry_run and self.calendar_client is not None
+            if executed:
+                self.calendar_client.create_events([pending_event])
+            
+            return AgentResult(
+                raw_response=user_response,
+                action=CalendarAction.ADD_EVENT,
+                detail=self._format_add_message(pending_event, executed=executed),
+                executed=executed,
+                needs_confirmation=False,
+                pending_event=None,
+            )
+        else:
+            # User cancelled
+            return AgentResult(
+                raw_response=user_response,
+                action=CalendarAction.ADD_EVENT,
+                detail="Event scheduling cancelled.",
+                executed=False,
+                needs_confirmation=False,
+                pending_event=None,
+            )
+
+    def _detect_time_conflicts(self, new_event: CourseEvent) -> List[CourseEvent]:
+        """Detect existing events that conflict with the new event's time slot."""
+        conflicts = []
+        new_start = new_event.start
+        new_end = new_event.end or new_event.start
+        
+        for existing_event in self.events:
+            existing_start = existing_event.start
+            existing_end = existing_event.end or existing_event.start
+            
+            # Check if events overlap
+            if self._events_overlap(new_start, new_end, existing_start, existing_end):
+                conflicts.append(existing_event)
+        
+        return conflicts
+
+    @staticmethod
+    def _events_overlap(start1: datetime, end1: datetime, start2: datetime, end2: datetime) -> bool:
+        """Check if two time ranges overlap."""
+        # Events overlap if one starts before the other ends
+        return start1 < end2 and start2 < end1
+
+    def _format_conflict_message(self, new_event: CourseEvent, conflicts: List[CourseEvent]) -> str:
+        """Format a message asking for confirmation when conflicts are detected."""
+        new_window = self._format_event_window(new_event)
+        conflict_details = []
+        
+        for conflict in conflicts:
+            conflict_window = self._format_event_window(conflict)
+            conflict_details.append(f"• '{conflict.title}' at {conflict_window}")
+        
+        conflicts_text = "\n".join(conflict_details)
+        
+        return f"""⚠️ Time conflict detected!
+
+You want to schedule: '{new_event.title}' at {new_window}
+
+But you already have:
+{conflicts_text}
+
+Are you sure you want to schedule this event? Type 'yes' to confirm or 'no' to cancel."""
 
     @staticmethod
     def _parse_command(text: str) -> "CalendarCommand":
@@ -249,6 +357,34 @@ Rules:
             label = getattr(tzinfo, "zone", "") or getattr(tzinfo, "key", "")
         return label or ""
 
+    @staticmethod
+    def _should_force_add(user_text: str, action: CalendarAction) -> bool:
+        if action != CalendarAction.DELETE_EVENT:
+            return False
+        text = user_text.lower()
+        add_keywords = [
+            "add ",
+            "schedule",
+            "set up",
+            "plan",
+            "i have",
+            "i've got",
+            "put on",
+            "log",
+            "create an event",
+        ]
+        delete_keywords = [
+            "cancel",
+            "delete",
+            "remove",
+            "drop",
+            "take off",
+            "clear",
+        ]
+        return any(keyword in text for keyword in add_keywords) and not any(
+            keyword in text for keyword in delete_keywords
+        )
+
 
 class EventPayload(BaseModel):
     title: str
@@ -276,7 +412,7 @@ class EventPayload(BaseModel):
         if end and end <= start:
             end = self._adjust_end_time(start, end)
         return CourseEvent(
-            title=self.title,
+            title=self._capitalize_title(self.title),
             category=self.category or EventCategory.OTHER,
             start=start,
             end=end,
@@ -284,6 +420,26 @@ class EventPayload(BaseModel):
             description=self.description,
             source_url="agentic_calendar",
         )
+
+    @staticmethod
+    def _capitalize_title(title: str) -> str:
+        """Properly capitalize event titles."""
+        if not title:
+            return title
+        
+        # Split into words and capitalize appropriately
+        words = title.split()
+        capitalized_words = []
+        
+        for i, word in enumerate(words):
+            # Skip common words that should be lowercase (except first word)
+            if i > 0 and word.lower() in {'a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in', 'of', 'on', 'or', 'the', 'to', 'up', 'with'}:
+                capitalized_words.append(word.lower())
+            else:
+                # Capitalize first letter of each word
+                capitalized_words.append(word.capitalize())
+        
+        return ' '.join(capitalized_words)
 
     @staticmethod
     def _adjust_end_time(start: datetime, proposed_end: datetime) -> datetime:
@@ -309,6 +465,7 @@ class CalendarCommand(BaseModel):
     target_start: Optional[str] = None
     new_start: Optional[str] = None
     new_end: Optional[str] = None
+    detail: Optional[str] = None
 
 
 def _extract_json(text: str) -> str:

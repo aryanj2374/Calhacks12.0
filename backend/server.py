@@ -85,12 +85,19 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
 
+class ConfirmationRequest(BaseModel):
+    response: str = Field(min_length=1, max_length=200)
+    pending_event: dict = Field(description="The pending event data to confirm")
+
+
 class ChatResponse(BaseModel):
     reply: str
     action: str
     executed: bool
     raw_response: Optional[str] = None
     metadata: dict | None = None
+    needs_confirmation: bool = False
+    pending_event: Optional[dict] = None
 
 
 class GmailSyncInfo(BaseModel):
@@ -148,6 +155,30 @@ class AgentService:
     async def handle_chat(self, text: str) -> AgentResult:
         async with self._lock:
             return await asyncio.to_thread(self.agent.handle_request, text, dry_run=self.config.dry_run)
+
+    async def handle_confirmation(self, response: str, pending_event_data: dict) -> AgentResult:
+        async with self._lock:
+            # Convert dict back to CourseEvent
+            from agentic_calendar.models import CourseEvent, EventCategory
+            from datetime import datetime
+            from dateutil import parser as date_parser
+            
+            pending_event = CourseEvent(
+                title=pending_event_data["title"],
+                category=EventCategory(pending_event_data["category"]),
+                start=date_parser.isoparse(pending_event_data["start"]),
+                end=date_parser.isoparse(pending_event_data["end"]) if pending_event_data.get("end") else None,
+                location=pending_event_data.get("location"),
+                description=pending_event_data.get("description"),
+                source_url=pending_event_data.get("source_url"),
+            )
+            
+            return await asyncio.to_thread(
+                self.agent.handle_confirmation, 
+                response, 
+                pending_event, 
+                dry_run=self.config.dry_run
+            )
 
     def _load_initial_events(self) -> None:
         try:
@@ -364,6 +395,26 @@ async def chat(request: ChatRequest) -> ChatResponse:
         executed=result.executed,
         raw_response=result.raw_response,
         metadata={"timestamp": datetime.utcnow().isoformat()},
+        needs_confirmation=result.needs_confirmation,
+        pending_event=result.pending_event.model_dump() if result.pending_event else None,
+    )
+
+
+@app.post("/api/confirm", response_model=ChatResponse)
+async def confirm(request: ConfirmationRequest) -> ChatResponse:
+    try:
+        result = await service.handle_confirmation(request.response, request.pending_event)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return ChatResponse(
+        reply=result.detail,
+        action=result.action.value,
+        executed=result.executed,
+        raw_response=result.raw_response,
+        metadata={"timestamp": datetime.utcnow().isoformat()},
+        needs_confirmation=result.needs_confirmation,
+        pending_event=result.pending_event.model_dump() if result.pending_event else None,
     )
 
 
