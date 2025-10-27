@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 from threading import Lock
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, TYPE_CHECKING, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +23,14 @@ from agentic_calendar.gmail_ingest import ingest_gmail
 from agentic_calendar.llm_client import LavaPaymentsLLMClient
 from agentic_calendar.models import CourseEvent
 from gymscraper import fetch_rsf_occupancy_percent
+
+if TYPE_CHECKING:  # pragma: no cover - import only for typing
+    from menu_recommender import MenuRecommender
+
+
+DEFAULT_MENU_SOURCE_URL = "https://dining.berkeley.edu/menus/"
+DEFAULT_MENUS_JSON_PATH = "menus.json"
+DEFAULT_MENU_RECOMMENDATION_CACHE_MINUTES = 30
 
 try:
     from calhacks import save_to_csv, scrape_course_schedule
@@ -96,6 +104,13 @@ class ServerConfig:
     )
     console_oauth: bool = _env_bool("CONSOLE_OAUTH", False)
     course_import_replace: bool = _env_bool("COURSE_IMPORT_REPLACE", False)
+    enable_menu_recommendations: bool = _env_bool("ENABLE_MENU_RECOMMENDATIONS", True)
+    menu_source_url: str = os.getenv("MENU_SOURCE_URL", DEFAULT_MENU_SOURCE_URL)
+    menus_json: Path = Path(os.getenv("MENUS_JSON", DEFAULT_MENUS_JSON_PATH))
+    menu_recommendation_cache_minutes: int = int(
+        os.getenv("MENU_RECOMMENDATION_CACHE_MINUTES", str(DEFAULT_MENU_RECOMMENDATION_CACHE_MINUTES))
+    )
+    menu_recommendation_user_id: str = os.getenv("MENU_RECOMMENDATION_USER_ID", "default-user")
 
 
 class ChatRequest(BaseModel):
@@ -136,9 +151,35 @@ class GymStatus(BaseModel):
     error: Optional[str] = None
 
 
+class MenuRecommendation(BaseModel):
+    name: str
+    location: Optional[str] = None
+    meal: Optional[str] = None
+    category: Optional[str] = None
+    item_id: Optional[str] = None
+    blurb: Optional[str] = None
+    hours: List[str] = Field(default_factory=list)
+    status: Optional[str] = None
+    crowdedness: Optional[dict] = None
+    score: Optional[float] = None
+    menu_reference: Optional[dict] = None
+    nutrition: Optional[dict] = None
+
+
 class StatusResponse(BaseModel):
     gmail_sync: Optional[GmailSyncInfo] = None
     gym_status: Optional[GymStatus] = None
+    menu_recommendation: Optional[MenuRecommendation] = None
+
+
+class MenuFeedbackRequest(BaseModel):
+    item_id: str = Field(min_length=1)
+    vote: Literal["upvote", "downvote"]
+    user_id: Optional[str] = None
+
+
+class MenuFeedbackResponse(BaseModel):
+    menu_recommendation: Optional[MenuRecommendation] = None
 
 
 class CourseImportSummary(BaseModel):
@@ -190,6 +231,12 @@ class AgentService:
         self._gym_status_cache: GymStatus | None = None
         self._gym_status_expiration: datetime | None = None
         self._gym_cache_ttl = timedelta(minutes=5)
+        self._menu_refresh_lock = asyncio.Lock()
+        self._menu_lock = asyncio.Lock()
+        self._menu_recommender: MenuRecommender | None = None
+        self._menu_last_refresh: datetime | None = None
+        self._menu_cache: Dict[str, MenuRecommendation] = {}
+        self._menu_cache_expiration: Dict[str, datetime] = {}
 
     async def handle_chat(self, text: str) -> AgentResult:
         async with self._lock:
@@ -317,6 +364,154 @@ class AgentService:
         if result.events:
             created = await self.append_events(result.events)
             logger.info("Gmail ingest added %s new events; created_ids=%s", created, len(result.created_event_ids))
+
+    async def refresh_menu_data(self, *, force: bool = False) -> None:
+        if not self.config.enable_menu_recommendations:
+            return
+        async with self._menu_refresh_lock:
+            first_init = self._menu_last_refresh is None
+            now = datetime.now(timezone.utc)
+            if (
+                not force
+                and self._menu_last_refresh
+                and now - self._menu_last_refresh < timedelta(minutes=5)
+            ):
+                return
+            if first_init:
+                self._reset_menu_memory()
+            output_path = self.config.menus_json
+            try:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                logger.warning("Could not ensure menu output directory %s", output_path.parent, exc_info=True)
+            try:
+                from scraper import run_scrape
+            except Exception as exc:  # pragma: no cover - dependency missing
+                logger.warning("Menu scraper unavailable: %s", exc)
+                return
+            url = self.config.menu_source_url or DEFAULT_MENU_SOURCE_URL
+            try:
+                await asyncio.to_thread(run_scrape, url, output_path)
+            except Exception:
+                logger.exception("Failed to scrape dining menu data from %s", url)
+                return
+            try:
+                from menu_recommender import build_recommender
+            except Exception as exc:  # pragma: no cover - dependency missing
+                logger.warning("Menu recommender unavailable: %s", exc)
+                return
+            try:
+                recommender = await asyncio.to_thread(build_recommender, output_path)
+            except Exception:
+                logger.exception("Failed to build menu recommender from %s", output_path)
+                return
+            async with self._menu_lock:
+                self._menu_recommender = recommender
+                self._menu_last_refresh = datetime.now(timezone.utc)
+                self._menu_cache.clear()
+                self._menu_cache_expiration.clear()
+            item_count = len(getattr(recommender.kb, "items", []))
+            logger.info("Menu recommender initialized with %s items", item_count)
+
+    async def get_menu_recommendation(
+        self,
+        *,
+        force_refresh: bool = False,
+        user_id: Optional[str] = None,
+    ) -> MenuRecommendation | None:
+        if not self.config.enable_menu_recommendations:
+            return None
+        user_key = user_id or self.config.menu_recommendation_user_id
+        now = datetime.now(timezone.utc)
+        async with self._menu_lock:
+            cached = self._menu_cache.get(user_key)
+            expiration = self._menu_cache_expiration.get(user_key)
+            if (
+                not force_refresh
+                and cached
+                and expiration
+                and now < expiration
+            ):
+                return cached
+            recommender = self._menu_recommender
+        if recommender is None:
+            await self.refresh_menu_data(force=True)
+            async with self._menu_lock:
+                recommender = self._menu_recommender
+                if recommender is None:
+                    return None
+        try:
+            results = await asyncio.to_thread(
+                recommender.recommend,
+                "best well-balanced meal today",
+                top_k=5,
+                user_id=user_key,
+            )
+        except Exception:
+            logger.exception("Failed to generate menu recommendation")
+            return None
+        if not results:
+            return None
+        top: Optional[dict] = None
+        for candidate in results:
+            if candidate:
+                top = candidate
+                break
+        if top is None:
+            return None
+        rec = MenuRecommendation(
+            name=top.get("name") or "Dining hall highlight",
+            location=top.get("location"),
+            meal=top.get("meal"),
+            category=top.get("category"),
+            item_id=top.get("item_id"),
+            blurb=top.get("blurb"),
+            hours=list(top.get("hours") or []),
+            status=top.get("status"),
+            crowdedness=top.get("crowdedness"),
+            score=top.get("score"),
+            menu_reference=top.get("menu_reference"),
+            nutrition=top.get("nutrition"),
+        )
+        async with self._menu_lock:
+            ttl_minutes = max(1, self.config.menu_recommendation_cache_minutes)
+            self._menu_cache[user_key] = rec
+            self._menu_cache_expiration[user_key] = now + timedelta(minutes=ttl_minutes)
+        return rec
+
+    @staticmethod
+    def _reset_menu_memory() -> None:
+        storage_root = Path(os.getenv("LETTA_STORAGE_ROOT", ".cache")) / "letta"
+        storage_path = storage_root / "feedback.json"
+        try:
+            storage_path.unlink(missing_ok=True)
+        except Exception:
+            logger.warning("Failed to reset menu memory at %s", storage_path, exc_info=True)
+
+    async def record_menu_feedback(
+        self,
+        *,
+        item_id: str,
+        vote: Literal["upvote", "downvote"],
+        user_id: Optional[str] = None,
+    ) -> MenuRecommendation | None:
+        if not self.config.enable_menu_recommendations:
+            raise RuntimeError("Menu recommendations are disabled.")
+        user_key = user_id or self.config.menu_recommendation_user_id
+        recommender = self._menu_recommender
+        if recommender is None:
+            raise RuntimeError("Menu recommender is not initialized.")
+        vote_value = 1 if vote == "upvote" else -1
+        try:
+            await asyncio.to_thread(recommender.record_feedback, user_key, item_id, vote_value)
+        except KeyError as exc:
+            raise KeyError(str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - defensive
+            raise RuntimeError(f"Failed to record feedback: {exc}") from exc
+        async with self._menu_lock:
+            self._menu_cache.pop(user_key, None)
+            self._menu_cache_expiration.pop(user_key, None)
+        return await self.get_menu_recommendation(force_refresh=True, user_id=user_key)
 
     @staticmethod
     def _event_key(event: CourseEvent) -> tuple[str, str]:
@@ -533,6 +728,7 @@ def _extract_course_link(message: str) -> Optional[str]:
 
 @app.on_event("startup")
 async def _startup() -> None:
+    await service.refresh_menu_data(force=True)
     await service.prime_daily_focus_items()
     if not config.enable_gmail_polling:
         logger.info("Gmail polling disabled (set ENABLE_GMAIL_POLLING=true to enable).")
@@ -618,9 +814,29 @@ async def confirm(request: ConfirmationRequest) -> ChatResponse:
 @app.get("/api/status", response_model=StatusResponse)
 async def status() -> StatusResponse:
     gym_status = await service.get_gym_status()
-    return StatusResponse(gmail_sync=service.get_gmail_sync_info(), gym_status=gym_status)
+    menu_rec = await service.get_menu_recommendation(user_id=config.menu_recommendation_user_id)
+    return StatusResponse(
+        gmail_sync=service.get_gmail_sync_info(),
+        gym_status=gym_status,
+        menu_recommendation=menu_rec,
+    )
 
 
 @app.get("/api/todos", response_model=List[TodoItem])
 async def todos() -> List[TodoItem]:
     return await service.get_daily_focus_items()
+
+
+@app.post("/api/menu/feedback", response_model=MenuFeedbackResponse)
+async def menu_feedback(request: MenuFeedbackRequest) -> MenuFeedbackResponse:
+    try:
+        next_rec = await service.record_menu_feedback(
+            item_id=request.item_id,
+            vote=request.vote,
+            user_id=request.user_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return MenuFeedbackResponse(menu_recommendation=next_rec)

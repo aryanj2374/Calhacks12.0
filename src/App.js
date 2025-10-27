@@ -44,6 +44,9 @@ function App() {
   const [error, setError] = useState("");
   const [syncInfo, setSyncInfo] = useState(null);
   const [gymStatus, setGymStatus] = useState(null);
+  const [menuRecommendation, setMenuRecommendation] = useState(null);
+  const [menuVotePending, setMenuVotePending] = useState(false);
+  const [menuVoteError, setMenuVoteError] = useState("");
   const [todos, setTodos] = useState([]);
   const [showIdeas, setShowIdeas] = useState(true);
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
@@ -59,6 +62,10 @@ function App() {
       const payload = await response.json();
       setSyncInfo(payload.gmail_sync || null);
       setGymStatus(payload.gym_status || null);
+      setMenuRecommendation(payload.menu_recommendation || null);
+      if (payload.menu_recommendation) {
+        setMenuVoteError("");
+      }
       const nextTimestamp = payload.gmail_sync?.timestamp || null;
       if (nextTimestamp) {
         if (nextTimestamp !== lastSyncTimestampRef.current) {
@@ -123,12 +130,11 @@ function App() {
   const defaultRecommendations = useMemo(
     () => [
       "Check the RSF crowd meter before heading out",
-      "Confirm study group time",
+      "Top dining pick loading…",
       "Block focus time for project",
     ],
     []
   );
-  const [recommendations, setRecommendations] = useState(defaultRecommendations);
 
   useEffect(() => {
     if (chatRef.current) {
@@ -136,28 +142,73 @@ function App() {
     }
   }, [messages]);
 
-  useEffect(() => {
-    setRecommendations(() => {
-      const next = [...defaultRecommendations];
-      if (!gymStatus) {
-        return next;
-      }
+  const recommendations = useMemo(() => {
+    const next = [...defaultRecommendations];
+    if (gymStatus) {
       if (gymStatus.error) {
         next[0] = `RSF crowd data unavailable (${gymStatus.error})`;
-        return next;
-      }
-      const percent = gymStatus.occupancy_percent;
-      if (typeof percent === "number") {
-        next[0] =
-          percent < 50
-            ? `RSF · ${percent}% full · Hit the gym!`
-            : `RSF · ${percent}% full · Crowded now—wait till off-peak hours`;
       } else {
-        next[0] = "RSF crowd status unavailable";
+        const percent = gymStatus.occupancy_percent;
+        if (typeof percent === "number") {
+          next[0] =
+            percent < 50
+              ? `RSF · ${percent}% full · Hit the gym!`
+              : `RSF · ${percent}% full · Crowded now—wait till off-peak hours`;
+        } else {
+          next[0] = "RSF crowd status unavailable";
+        }
       }
-      return next;
-    });
-  }, [gymStatus, defaultRecommendations]);
+    }
+
+    if (menuRecommendation) {
+      const parts = [];
+      if (menuRecommendation.location) parts.push(menuRecommendation.location);
+      if (menuRecommendation.meal) parts.push(menuRecommendation.meal);
+      const dishName = menuRecommendation.name || "Dining hall highlight";
+      if (dishName) parts.push(dishName);
+      const text = parts.join(" · ").trim();
+      next[1] = text || dishName;
+    } else {
+      next[1] = defaultRecommendations[1];
+    }
+
+    return next;
+  }, [defaultRecommendations, gymStatus, menuRecommendation]);
+
+  const handleMenuFeedback = useCallback(
+    async (vote) => {
+      if (!menuRecommendation?.item_id || menuVotePending) return;
+      setMenuVotePending(true);
+      setMenuVoteError("");
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/menu/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_id: menuRecommendation.item_id,
+            vote,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = payload?.detail || "Feedback request failed.";
+          throw new Error(message);
+        }
+        setMenuRecommendation(payload.menu_recommendation || null);
+        setMenuVoteError("");
+        if (!payload.menu_recommendation) {
+          setMenuVoteError("No new recommendation available right now.");
+        }
+        await fetchStatus();
+      } catch (err) {
+        console.error("Menu feedback failed", err);
+        setMenuVoteError(err.message || "Unable to record feedback.");
+      } finally {
+        setMenuVotePending(false);
+      }
+    },
+    [apiBaseUrl, fetchStatus, menuRecommendation, menuVotePending]
+  );
 
   const handleSend = async () => {
     if (!input.trim() || sending) return;
@@ -263,10 +314,15 @@ function App() {
 
   return (
     <div className="app-shell">
+      <header className="app-header">
+        <span className="brand-logo">
+          Cal<sup>2</sup>
+        </span>
+      </header>
       <header className="hero">
         <div>
           <p className="pill">Agentic Workspace</p>
-          <h1>Your calendar co-pilot</h1>
+          <h1>Don't waste time managing time.</h1>
           <p className="subtitle">
             Capture intents, scrape syllabi, and stay aligned with your courses without leaving chat.
           </p>
@@ -429,9 +485,34 @@ function App() {
           <div className="card rec-card">
             <h3>Recommendations</h3>
             <ul className="pill-list">
-              {recommendations.map((rec, idx) => (
-                <li key={idx}>{rec}</li>
-              ))}
+              <li>{recommendations[0]}</li>
+              <li className="menu-rec-item">
+                <div className="menu-rec-main">{recommendations[1]}</div>
+                {menuRecommendation?.item_id && (
+                  <div className="menu-rec-actions">
+                    <button
+                      type="button"
+                      className="menu-rec-button"
+                      onClick={() => handleMenuFeedback("upvote")}
+                      disabled={menuVotePending}
+                      aria-label="Upvote recommendation"
+                    >
+                      👍
+                    </button>
+                    <button
+                      type="button"
+                      className="menu-rec-button"
+                      onClick={() => handleMenuFeedback("downvote")}
+                      disabled={menuVotePending}
+                      aria-label="Downvote recommendation"
+                    >
+                      👎
+                    </button>
+                  </div>
+                )}
+                {menuVoteError && <div className="menu-rec-error">{menuVoteError}</div>}
+              </li>
+              {recommendations[2] && <li>{recommendations[2]}</li>}
             </ul>
           </div>
           <div className="card todo-card">

@@ -25,6 +25,35 @@ body {
   color: var(--text);
 }
 
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(59, 130, 246, 0.25));
+  border: 1px solid rgba(124, 58, 237, 0.4);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.35);
+}
+
+.brand-logo {
+  font-size: clamp(2rem, 3vw + 1rem, 3.5rem);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.2em;
+}
+
+.brand-logo sup {
+  font-size: 0.48em;
+  font-weight: 600;
+  position: relative;
+  top: -0.35em;
+}
+
 .app-shell {
   max-width: 1200px;
   margin: 0 auto;
@@ -566,6 +595,44 @@ body {
   border: solid white;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
+}
+
+.menu-rec-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.menu-rec-main {
+  font-weight: 500;
+}
+
+.menu-rec-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.menu-rec-button {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.menu-rec-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.menu-rec-button:not(:disabled):hover {
+  background: #f3f4f6;
+}
+
+.menu-rec-error {
+  color: #d14343;
+  font-size: 0.85rem;
 }
 @media (max-width: 900px) {
   .hero {

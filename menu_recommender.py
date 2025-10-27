@@ -13,7 +13,18 @@ from pathlib import Path
 import datetime as dt
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from crowdedness import estimate_crowdedness
+try:
+    from crowdedness import estimate_crowdedness
+except ImportError:  # pragma: no cover - optional dependency
+    @dataclass
+    class _FallbackCrowd:
+        score: float = 0.5
+        label: str = "unknown"
+        updated_at: Optional[str] = None
+        source: str = "fallback"
+
+    def estimate_crowdedness(_location: str, *, when: Optional[dt.datetime] = None) -> _FallbackCrowd:
+        return _FallbackCrowd(updated_at=getattr(when, "isoformat", lambda: None)())
 from letta_memory import LettaMemoryClient, PreferenceProfile
 from vector_store import ChromaVectorStore, QueryResult, VectorStoreUnavailable
 
@@ -692,7 +703,17 @@ class MenuRecommender:
 
         if profile:
             item_preference = profile.item_scores.get(item.identifier, 0.0)
-            if item_preference <= -2.0:
+            if item_preference <= -0.5:
+                return False
+            if profile.has_signal() and not self._matches_positive_preferences(item, profile):
+                return False
+            if any(profile.tag_scores.get(tag, 0.0) < -0.25 for tag in item.tag_set):
+                return False
+            category_key = (item.category or "").lower()
+            if category_key and profile.category_scores.get(category_key, 0.0) < -0.25:
+                return False
+            location_key = item.location.lower()
+            if location_key and profile.location_scores.get(location_key, 0.0) < -0.25:
                 return False
 
         return True
@@ -950,6 +971,25 @@ class MenuRecommender:
             boost += profile.tag_scores.get(tag, 0.0) * 0.15
 
         return boost
+
+    @staticmethod
+    def _matches_positive_preferences(item: MenuItem, profile: PreferenceProfile) -> bool:
+        positive_items = {key for key, value in profile.item_scores.items() if value > 0}
+        positive_tags = {key for key, value in profile.tag_scores.items() if value > 0}
+        positive_categories = {key for key, value in profile.category_scores.items() if value > 0}
+        positive_locations = {key for key, value in profile.location_scores.items() if value > 0}
+
+        if not (positive_items or positive_tags or positive_categories or positive_locations):
+            return True
+        if positive_tags and any(tag in positive_tags for tag in item.tag_set):
+            return True
+        category_key = (item.category or "").lower()
+        if category_key and category_key in positive_categories:
+            return True
+        location_key = item.location.lower()
+        if location_key and location_key in positive_locations:
+            return True
+        return False
 
     def _format_result(
         self,
